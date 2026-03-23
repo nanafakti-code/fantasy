@@ -75,23 +75,25 @@ class LeagueStatusCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(
             nombre,
-            style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
                 ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           const Text(
             '2ª Andaluza · Temporada 2025/26',
             style: TextStyle(
               color: Colors.white70,
-              fontSize: 13,
+              fontSize: 11,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Row(
             children: [
               _StatItem(
@@ -99,13 +101,13 @@ class LeagueStatusCard extends StatelessWidget {
                 value: '$posicionº',
                 icon: Icons.leaderboard_rounded,
               ),
-              _Divider(),
+              const SizedBox(width: 8),
               _StatItem(
                 label: 'Puntos',
                 value: puntos.toInt().toString(),
                 icon: Icons.star_rounded,
               ),
-              _Divider(),
+              const SizedBox(width: 8),
               _StatItem(
                 label: 'Última Jornada',
                 value: '${ultimaJornada >= 0 ? '+' : ''}${ultimaJornada.toInt()}',
@@ -131,13 +133,13 @@ class _StatItem extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, color: Colors.white70, size: 16),
-          const SizedBox(height: 4),
+          Icon(icon, color: Colors.white70, size: 14),
+          const SizedBox(height: 2),
           Text(
             value,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -145,7 +147,7 @@ class _StatItem extends StatelessWidget {
             label,
             style: const TextStyle(
               color: Colors.white60,
-              fontSize: 11,
+              fontSize: 10,
             ),
           ),
         ],
@@ -154,14 +156,3 @@ class _StatItem extends StatelessWidget {
   }
 }
 
-class _Divider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 40,
-      color: Colors.white24,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-    );
-  }
-}

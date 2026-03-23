@@ -21,11 +21,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isLoading = true;
   List<dynamic> _leagues = [];
   Map<String, dynamic>? _userProfile;
+  int _activeLeagueIndex = 0;
+  late PageController _pageController;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(viewportFraction: 0.92);
     _fetchLeagues();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchLeagues() async {
@@ -55,6 +64,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           setState(() {
             _leagues = leaguesResponse;
             _isLoading = false;
+            // Aseguramos que el índice no se pase de rango si se borra una liga
+            if (_activeLeagueIndex >= _leagues.length) {
+              _activeLeagueIndex = 0;
+            }
           });
           ref.read(userHasLeagueProvider.notifier).state = _leagues.isNotEmpty;
         }
@@ -80,40 +93,88 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   color: AppColors.primary,
                   backgroundColor: AppColors.bgCard,
                   onRefresh: () async {
-                    await Future.delayed(const Duration(seconds: 1));
+                    await _fetchLeagues();
                   },
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                       : _leagues.isEmpty
                           ? _buildEmptyState(context)
                           : ListView(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
                               children: [
-                                Builder(
-                                  builder: (context) {
-                                    final leagueEntry = _leagues.first;
-                                    final liga = leagueEntry['ligas'] as Map<String, dynamic>;
-                                    final user = Supabase.instance.client.auth.currentUser;
-                                    final bool isAdmin = liga['creador_id'] == user?.id;
-                                    
-                                    return LeagueStatusCard(
-                                      nombre: liga['nombre'] ?? 'Mi Liga',
-                                      jornada: liga['jornada_actual'] ?? 1,
-                                      posicion: leagueEntry['posicion'] ?? 0,
-                                      puntos: (leagueEntry['puntos_totales'] as num?)?.toDouble() ?? 0.0,
-                                      ultimaJornada: 0.0,
-                                      onSettingsTap: isAdmin ? () => _confirmDeleteLeague(liga['id']) : null,
-                                    );
-                                  },
+                                // CARRUSEL DE LIGAS
+                                SizedBox(
+                                  height: 235,
+                                  child: PageView.builder(
+                                    controller: _pageController,
+                                    itemCount: _leagues.length,
+                                    onPageChanged: (idx) {
+                                      setState(() => _activeLeagueIndex = idx);
+                                    },
+                                    itemBuilder: (context, index) {
+                                      final leagueEntry = _leagues[index];
+                                      final liga = leagueEntry['ligas'] as Map<String, dynamic>;
+                                      final user = Supabase.instance.client.auth.currentUser;
+                                      final bool isAdmin = liga['creador_id'] == user?.id;
+
+                                      return AnimatedScale(
+                                        scale: _activeLeagueIndex == index ? 1.0 : 0.95,
+                                        duration: const Duration(milliseconds: 300),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                                          child: LeagueStatusCard(
+                                            nombre: liga['nombre'] ?? 'Mi Liga',
+                                            jornada: liga['jornada_actual'] ?? 1,
+                                            posicion: leagueEntry['posicion'] ?? 0,
+                                            puntos: (leagueEntry['puntos_totales'] as num?)?.toDouble() ?? 0.0,
+                                            ultimaJornada: 0.0,
+                                            onSettingsTap: isAdmin ? () => _confirmDeleteLeague(liga['id']) : null,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
+                                
+                                // INDICADORES DE PÁGINA
+                                if (_leagues.length > 1)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 12, bottom: 8),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: List.generate(_leagues.length, (index) {
+                                        return AnimatedContainer(
+                                          duration: const Duration(milliseconds: 300),
+                                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                                          height: 6,
+                                          width: _activeLeagueIndex == index ? 16 : 6,
+                                          decoration: BoxDecoration(
+                                            color: _activeLeagueIndex == index 
+                                              ? AppColors.primary 
+                                              : AppColors.textMuted.withOpacity(0.3),
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                        );
+                                      }),
+                                    ),
+                                  ),
+
                                 const SizedBox(height: 16),
-                                const NextMatchCard(),
-                                const SizedBox(height: 16),
-                                const PointsSummaryCard(),
-                                const SizedBox(height: 16),
-                                _buildQuickActions(context),
-                                const SizedBox(height: 24),
+                                
+                                // PASAR CONTENIDO DINÁMICO SEGÚN LA LIGA ACTIVA
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: Column(
+                                    children: [
+                                      NextMatchCard(ligaId: _leagues[_activeLeagueIndex]['liga_id']),
+                                      const SizedBox(height: 16),
+                                      const PointsSummaryCard(),
+                                      const SizedBox(height: 16),
+                                      _buildQuickActions(context),
+                                      const SizedBox(height: 24),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
                 ),
@@ -208,7 +269,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           GestureDetector(
             onTap: () async {
               await context.push('/profile');
-              _fetchLeagues(); // Recargar foto al volver
+              _fetchLeagues(); 
             },
             child: Hero(
               tag: 'profile_avatar',
@@ -255,9 +316,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const Text(
           'Acciones rápidas',
-          style: Theme.of(context).textTheme.titleLarge,
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
         ),
         const SizedBox(height: 12),
         Row(
@@ -415,10 +476,12 @@ class _ActionButton extends StatelessWidget {
               label,
               style: TextStyle(
                 color: color,
-                fontSize: 12,
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
               ),
               textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

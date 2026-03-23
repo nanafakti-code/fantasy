@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -44,7 +45,6 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
     });
 
     try {
-      // 1. Buscar la liga por código
       final league = await Supabase.instance.client
           .from('ligas')
           .select('id, nombre, max_participantes')
@@ -61,7 +61,6 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
         return;
       }
 
-      // 2. Contar participantes actuales
       final participantsList = await Supabase.instance.client
           .from('usuarios_ligas')
           .select('id')
@@ -91,7 +90,6 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw 'No hay usuario autenticado';
 
-      // Verificar si ya está en la liga
       final existing = await Supabase.instance.client
           .from('usuarios_ligas')
           .select('id')
@@ -103,11 +101,10 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
         throw 'Ya perteneces a esta liga';
       }
 
-      // Unirse a la liga
       await Supabase.instance.client.from('usuarios_ligas').insert({
         'user_id': user.id,
         'liga_id': _ligaFound!['id'],
-        'presupuesto': 50000000, // 50M inicial
+        'presupuesto': 50000000, 
       });
 
       if (mounted) {
@@ -115,7 +112,7 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('✅ ¡Bienvenido a la liga!')),
         );
-        context.go('/home'); // Volvemos al home para refrescar todo
+        context.pop(); 
       }
     } catch (e) {
       if (mounted) {
@@ -158,6 +155,8 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                           label: 'Código de invitación',
                           hint: 'FANT2025',
                           controller: _codeController,
+                          textCapitalization: TextCapitalization.characters,
+                          inputFormatters: [UpperCaseTextFormatter()],
                           prefix: const Icon(Icons.link_rounded,
                               color: AppColors.textMuted, size: 20),
                           suffix: _isChecking
@@ -189,7 +188,6 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Vista previa de la liga encontrada de verdad
                         if (_ligaFound != null) ...[
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 300),
@@ -248,10 +246,8 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                           const SizedBox(height: 24),
                           AppButton(
                             label: 'Unirme a la liga',
-                            onPressed: _joinLeague,
                             isLoading: _isLoading,
-                            icon: const Icon(Icons.login_rounded,
-                                color: Colors.black),
+                            onPressed: _joinLeague,
                           ),
                         ],
                       ],
@@ -268,7 +264,7 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
 
   Widget _buildHeader(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
         children: [
           IconButton(
@@ -276,10 +272,22 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                 color: AppColors.textPrimary),
             onPressed: () => context.pop(),
           ),
+          const SizedBox(width: 8),
           Text('Unirse a liga',
               style: Theme.of(context).textTheme.headlineLarge),
         ],
       ),
+    );
+  }
+}
+
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
     );
   }
 }

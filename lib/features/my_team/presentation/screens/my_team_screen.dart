@@ -20,7 +20,6 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
   double _presupuesto = 0;
   int _puntosTotales = 0;
   int _posicion = 0;
-  int _totalLigasUser = 0;
   
   List<Map<String, dynamic>> _titulares = [];
   List<Map<String, dynamic>> _suplentes = [];
