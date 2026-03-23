@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
@@ -18,13 +19,13 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
   late final TextEditingController _codeController;
   bool _isLoading = false;
   bool _isChecking = false;
-  Map<String, dynamic>? _ligaPreview;
+  Map<String, dynamic>? _ligaFound;
 
   @override
   void initState() {
     super.initState();
     _codeController = TextEditingController(text: widget.codigo ?? '');
-    if (widget.codigo != null) _checkCode();
+    if (widget.codigo != null && widget.codigo!.length == 8) _checkCode();
   }
 
   @override
@@ -34,31 +35,95 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
   }
 
   Future<void> _checkCode() async {
-    setState(() => _isChecking = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) {
-      setState(() {
-        _isChecking = false;
-        _ligaPreview = {
-          'nombre': 'Liga de la Peña',
-          'division': '2ª Andaluza',
-          'participantes': 8,
-          'max_participantes': 12,
-        };
-      });
+    final code = _codeController.text.trim().toUpperCase();
+    if (code.length != 8) return;
+
+    setState(() {
+      _isChecking = true;
+      _ligaFound = null;
+    });
+
+    try {
+      // 1. Buscar la liga por código
+      final league = await Supabase.instance.client
+          .from('ligas')
+          .select('id, nombre, max_participantes')
+          .eq('codigo_invitacion', code)
+          .maybeSingle();
+
+      if (league == null) {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('❌ Código no válido o liga inexistente')),
+          );
+        }
+        setState(() => _isChecking = false);
+        return;
+      }
+
+      // 2. Contar participantes actuales
+      final participantsList = await Supabase.instance.client
+          .from('usuarios_ligas')
+          .select('id')
+          .eq('liga_id', league['id']);
+
+      if (mounted) {
+        setState(() {
+          _isChecking = false;
+          _ligaFound = {
+            'id': league['id'],
+            'nombre': league['nombre'],
+            'participantes': (participantsList as List).length,
+            'max_participantes': league['max_participantes'],
+          };
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isChecking = false);
     }
   }
 
   Future<void> _joinLeague() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_ligaFound == null) return;
+    
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) {
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Te has unido a la liga')),
-      );
-      context.go('/league');
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw 'No hay usuario autenticado';
+
+      // Verificar si ya está en la liga
+      final existing = await Supabase.instance.client
+          .from('usuarios_ligas')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('liga_id', _ligaFound!['id'])
+          .maybeSingle();
+
+      if (existing != null) {
+        throw 'Ya perteneces a esta liga';
+      }
+
+      // Unirse a la liga
+      await Supabase.instance.client.from('usuarios_ligas').insert({
+        'user_id': user.id,
+        'liga_id': _ligaFound!['id'],
+        'presupuesto': 50000000, // 50M inicial
+      });
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ ¡Bienvenido a la liga!')),
+        );
+        context.go('/home'); // Volvemos al home para refrescar todo
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -112,8 +177,8 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                                   onPressed: _checkCode,
                                 ),
                           onChanged: (v) {
-                            if (_ligaPreview != null) {
-                              setState(() => _ligaPreview = null);
+                            if (_ligaFound != null) {
+                              setState(() => _ligaFound = null);
                             }
                           },
                           validator: (v) {
@@ -124,8 +189,8 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Vista previa de la liga
-                        if (_ligaPreview != null) ...[
+                        // Vista previa de la liga encontrada de verdad
+                        if (_ligaFound != null) ...[
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 300),
                             padding: const EdgeInsets.all(16),
@@ -154,14 +219,14 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  _ligaPreview!['nombre'] as String,
+                                  _ligaFound!['nombre'] as String,
                                   style:
                                       Theme.of(context).textTheme.headlineMedium,
                                 ),
                                 const SizedBox(height: 4),
-                                Text(
-                                  _ligaPreview!['division'] as String,
-                                  style: Theme.of(context).textTheme.bodyMedium,
+                                const Text(
+                                  '2ª Andaluza',
+                                  style: TextStyle(color: AppColors.textSecondary),
                                 ),
                                 const SizedBox(height: 8),
                                 Row(
@@ -171,7 +236,7 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
                                         size: 16),
                                     const SizedBox(width: 6),
                                     Text(
-                                      '${_ligaPreview!['participantes']}/${_ligaPreview!['max_participantes']} participantes',
+                                      '${_ligaFound!['participantes']}/${_ligaFound!['max_participantes']} participantes',
                                       style:
                                           Theme.of(context).textTheme.bodySmall,
                                     ),
@@ -209,7 +274,7 @@ class _JoinLeagueScreenState extends ConsumerState<JoinLeagueScreen> {
           IconButton(
             icon: const Icon(Icons.arrow_back_ios_new_rounded,
                 color: AppColors.textPrimary),
-            onPressed: () => context.go('/league'),
+            onPressed: () => context.pop(),
           ),
           Text('Unirse a liga',
               style: Theme.of(context).textTheme.headlineLarge),
