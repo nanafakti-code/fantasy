@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -55,6 +56,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
 
       try {
+        if (_leagues.isEmpty) setState(() => _isLoading = true);
         final leaguesResponse = await Supabase.instance.client
             .from('usuarios_ligas')
             .select('*, ligas(*)')
@@ -62,25 +64,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             
         if (mounted) {
           setState(() {
-            _leagues = leaguesResponse;
+            _leagues = leaguesResponse as List<dynamic>;
             _isLoading = false;
             
-            // Si no hay liga seleccionada, cogemos la primera por defecto
-            if (ref.read(selectedLeagueIdProvider) == null && _leagues.isNotEmpty) {
-               ref.read(selectedLeagueIdProvider.notifier).state = _leagues.first['liga_id'];
-            }
-
-            // Reflejar en el índice del carrusel si ya tenemos una seleccionada
-            final currentId = ref.read(selectedLeagueIdProvider);
-            if (currentId != null) {
-              final idx = _leagues.indexWhere((l) => l['liga_id'] == currentId);
-              if (idx != -1) {
-                _activeLeagueIndex = idx;
-                // Si el controlador ya está cargado, lo movemos (si no, lo hará el init)
-                if (_pageController.hasClients) {
-                   _pageController.jumpToPage(idx);
-                }
+            // Sincronizar el provider con el índice activo
+            if (_leagues.isNotEmpty) {
+              if (_activeLeagueIndex >= _leagues.length) {
+                _activeLeagueIndex = 0;
               }
+              final currentId = _leagues[_activeLeagueIndex]['liga_id'];
+              ref.read(selectedLeagueIdProvider.notifier).state = currentId;
+              
+              // Reflejar en el carrusel
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_pageController.hasClients) {
+                  _pageController.jumpToPage(_activeLeagueIndex);
+                }
+              });
+            } else {
+              ref.read(selectedLeagueIdProvider.notifier).state = null;
             }
           });
           ref.read(userHasLeagueProvider.notifier).state = _leagues.isNotEmpty;
@@ -109,11 +111,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   onRefresh: () async {
                     await _fetchLeagues();
                   },
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                      : _leagues.isEmpty
-                          ? _buildEmptyState(context)
-                          : ListView(
+                  child: Stack(
+                    children: [
+                      _leagues.isEmpty && _isLoading
+                          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                          : _leagues.isEmpty
+                              ? _buildEmptyState(context)
+                              : ListView(
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               children: [
                                 // CARRUSEL DE LIGAS
@@ -143,7 +147,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                             posicion: leagueEntry['posicion'] ?? 0,
                                             puntos: (leagueEntry['puntos_totales'] as num?)?.toDouble() ?? 0.0,
                                             ultimaJornada: 0.0,
-                                            onSettingsTap: isAdmin ? () => _confirmDeleteLeague(liga['id']) : null,
+                                            isActive: _activeLeagueIndex == index,
+                                            isAdmin: isAdmin,
+                                            onDelete: isAdmin ? () => _confirmDeleteLeague(liga['id']) : null,
+                                            onLeave: () => _confirmLeaveLeague(liga['id'], isAdmin),
+                                            onInvite: () => _inviteToLeague(liga['codigo_invitacion']),
                                           ),
                                         ),
                                       );
@@ -192,6 +200,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 ),
                               ],
                             ),
+                      if (_isLoading && _leagues.isNotEmpty)
+                        Positioned(
+                          top: 8, left: 16, right: 16,
+                          child: LinearProgressIndicator(
+                            backgroundColor: Colors.transparent,
+                            color: AppColors.primary.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -444,11 +463,207 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  void _confirmLeaveLeague(String ligaId, bool isAdmin) async {
+    if (!isAdmin) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.bgCard,
+          title: const Text('¿Abandonar liga?'),
+          content: const Text('Dejarás de participar en esta liga. Tu equipo y puntos se perderán.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _leaveLeague(ligaId);
+              },
+              child: const Text('ABANDONAR', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // LÓGICA PARA ADMIN: Debe elegir sucesor
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      final membersResponse = await Supabase.instance.client
+          .from('usuarios_ligas')
+          .select('user_id, usuarios(username)')
+          .eq('liga_id', ligaId)
+          .neq('user_id', user?.id ?? '');
+      
+      setState(() => _isLoading = false);
+      final List<dynamic> otherMembers = membersResponse as List<dynamic>;
+
+      if (otherMembers.isEmpty) {
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.bgCard,
+            title: const Text('¿Abandonar liga?'),
+            content: const Text('Eres el único miembro. Al salir, la liga quedará sin administrador. Se recomienda eliminarla si no habrá más jugadores.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await _leaveLeague(ligaId);
+                },
+                child: const Text('ABANDONAR', style: TextStyle(color: AppColors.error)),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      // Mostrar selector de sucesor
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.bgCard,
+          title: const Text('Elegir nuevo Administrador'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Como administrador, debes designar a un sucesor antes de marcharte:'),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: otherMembers.length,
+                    itemBuilder: (ctx, i) {
+                      final member = otherMembers[i];
+                      final userData = member['usuarios'] as Map<String, dynamic>;
+                      return ListTile(
+                        leading: const CircleAvatar(backgroundColor: AppColors.primary, child: Icon(Icons.person, color: Colors.black)),
+                        title: Text(userData['username'] ?? 'Usuario', style: const TextStyle(color: Colors.white)),
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          await _transferAdminAndLeave(ligaId, member['user_id']);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al cargar miembros: $e')));
+      }
+    }
+  }
+
+  Future<void> _transferAdminAndLeave(String ligaId, String newAdminId) async {
+    setState(() => _isLoading = true);
+    try {
+      // 1. Transferir el mando via RPC (evita errores de RLS)
+      await Supabase.instance.client.rpc('transferir_admin', params: {
+        'p_liga_id': ligaId,
+        'p_nuevo_admin_id': newAdminId,
+      });
+      // 2. Abandonar
+      await _leaveLeague(ligaId);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al transferir: $e')));
+      }
+    }
+  }
+
+  void _inviteToLeague(String code) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text('Invitar a la liga'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Comparte este código con tus amigos para que se unan:'),
+            const SizedBox(height: 20),
+            GestureDetector(
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: code));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('¡Código copiado al portapapeles!'),
+                    behavior: SnackBarBehavior.floating,
+                    backgroundColor: AppColors.primary,
+                  ),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.black26, 
+                  borderRadius: BorderRadius.circular(12), 
+                  border: Border.all(color: AppColors.primary),
+                ),
+                child: Text(
+                  code, 
+                  style: const TextStyle(
+                    fontSize: 24, 
+                    fontWeight: FontWeight.bold, 
+                    color: AppColors.primary, 
+                    letterSpacing: 2,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Pulsa sobre el código para copiar',
+              style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 10),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _deleteLeague(String ligaId) async {
     setState(() => _isLoading = true);
     try {
       await Supabase.instance.client.rpc('eliminar_liga_completa', params: {'p_liga_id': ligaId});
       await _fetchLeagues();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _leaveLeague(String ligaId) async {
+    setState(() => _isLoading = true);
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        await Supabase.instance.client.from('usuarios_ligas').delete().eq('user_id', user.id).eq('liga_id', ligaId);
+        await _fetchLeagues();
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);

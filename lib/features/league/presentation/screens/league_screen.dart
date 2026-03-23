@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
 import '../../../../core/widgets/main_scaffold.dart';
@@ -18,7 +17,9 @@ class LeagueScreen extends ConsumerStatefulWidget {
 class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _liga;
-  List<dynamic> _miembros = [];
+  List<Map<String, dynamic>> _miembros = [];
+  List<Map<String, dynamic>> _jornadas = [];
+  String? _selectedJornadaId; // null = General
 
   @override
   void initState() {
@@ -29,63 +30,99 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   Future<void> _loadLeague() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
-    
+
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // Leer la liga seleccionada del provider global
-      String? ligaId = ref.read(selectedLeagueIdProvider);
-
-      // Si no hay liga seleccionada aún, buscamos la primera del usuario
+      final ligaId = ref.read(selectedLeagueIdProvider);
       if (ligaId == null) {
-        final membership = await Supabase.instance.client
-            .from('usuarios_ligas')
-            .select('liga_id')
-            .eq('user_id', user.id)
-            .maybeSingle(); // Esto fallará si tiene varias, pero cargará el home antes
-            
-        if (membership == null) {
-          if (mounted) setState(() { _liga = null; _isLoading = false; });
-          return;
-        }
-        ligaId = membership['liga_id'];
+        if (mounted) setState(() => _isLoading = false);
+        return;
       }
 
-      // Cargar DATOS DE LA LIGA
+      // 1. Cargar info de la LIGA
       final ligaData = await Supabase.instance.client
           .from('ligas')
-          .select('*')
-          .eq('id', ligaId!)
+          .select('*, creador_id')
+          .eq('id', ligaId)
           .single();
 
-      // Cargar MIEMBROS de esta liga
-      final miembros = await Supabase.instance.client
-          .from('usuarios_ligas')
-          .select('user_id, puntos_totales, posicion, usuarios(username, avatar_url)')
-          .eq('liga_id', ligaId!)
-          .order('puntos_totales', ascending: false);
+      // 2. Cargar JORNADAS de esa división
+      final jornadasData = await Supabase.instance.client
+          .from('jornadas')
+          .select('id, numero')
+          .eq('division', ligaData['division'])
+          .order('numero', ascending: true);
+
+      // 3. Cargar MIEMBROS según la selección (General o Jornada)
+      List<Map<String, dynamic>> members = [];
+      
+      if (_selectedJornadaId == null) {
+        // CLASIFICACIÓN GENERAL
+        members = await Supabase.instance.client
+            .from('usuarios_ligas')
+            .select('user_id, puntos_totales, posicion, valor_equipo, usuarios(username, avatar_url)')
+            .eq('liga_id', ligaId)
+            .order('puntos_totales', ascending: false)
+            .order('valor_equipo', ascending: false);
+      } else {
+        // CLASIFICACIÓN POR JORNADA
+        final puntosJornada = await Supabase.instance.client
+            .from('puntos_jornada')
+            .select('user_id, puntos, usuarios(username, avatar_url)')
+            .eq('liga_id', ligaId)
+            .eq('jornada_id', _selectedJornadaId!)
+            .order('puntos', ascending: false);
+
+        // Mapear al formato esperado, incluyendo el valor_equipo (que sigue siendo útil ver)
+        // Necesitamos valor_equipo de usuarios_ligas para cada usuario
+        final membersExtra = await Supabase.instance.client
+            .from('usuarios_ligas')
+            .select('user_id, valor_equipo')
+            .eq('liga_id', ligaId);
+        
+        final valorMap = { for (var m in membersExtra) m['user_id']: m['valor_equipo'] };
+
+        members = puntosJornada.map((pj) => {
+          'user_id': pj['user_id'],
+          'puntos_totales': pj['puntos'],
+          'usuarios': pj['usuarios'],
+          'valor_equipo': valorMap[pj['user_id']] ?? 0,
+          'posicion': (puntosJornada.indexOf(pj) + 1),
+        }).toList();
+      }
 
       if (mounted) {
         setState(() {
           _liga = ligaData;
-          _miembros = miembros;
+          _miembros = members;
+          _jornadas = jornadasData;
           _isLoading = false;
         });
       }
     } catch (e) {
+      debugPrint('Error loading league: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Escuchar cambios en la liga seleccionada para recargar si el usuario swipéo en el Home
     ref.listen(selectedLeagueIdProvider, (previous, next) {
       if (next != previous && next != null) {
+        _selectedJornadaId = null;
         _loadLeague();
       }
     });
+
+    final currentSelectedId = ref.watch(selectedLeagueIdProvider);
+    if (currentSelectedId != null && _liga != null && _liga!['id'] != currentSelectedId && !_isLoading) {
+      Future.microtask(() {
+        _selectedJornadaId = null;
+        _loadLeague();
+      });
+    }
 
     if (_isLoading) {
       return const Scaffold(
@@ -144,6 +181,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
 
     return Column(
       children: [
+        // CABECERA
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
           child: Row(
@@ -185,6 +223,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                       ),
                       backgroundColor: AppColors.bgCardLight,
                       behavior: SnackBarBehavior.floating,
+                      margin: const EdgeInsets.all(16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                         side: const BorderSide(color: AppColors.primary),
@@ -195,22 +234,14 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.primary.withOpacity(0.4)),
+                    color: AppColors.bgCard,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.primary.withOpacity(0.3)),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        codigo,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
+                      Text(codigo, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontFamily: 'monospace')),
+                      const SizedBox(width: 8),
                       const Icon(Icons.copy_rounded, size: 14, color: AppColors.primary),
                     ],
                   ),
@@ -219,100 +250,119 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
+        const SizedBox(height: 16),
+        
+        // SELECTOR DE JORNADA
+        SizedBox(
+          height: 36,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
-              SizedBox(width: 36, child: Text('#', style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center)),
-              const Expanded(flex: 3, child: Text('')),
-              Expanded(child: Text('Pts', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textPrimary, fontWeight: FontWeight.w600), textAlign: TextAlign.right)),
+              _buildJornadaChip(null, 'General'),
+              ..._jornadas.map((j) => _buildJornadaChip(j['id'], 'J.${j['numero']}')),
             ],
           ),
         ),
+        const SizedBox(height: 16),
+
+        // LISTA DE CLASIFICACIÓN
         Expanded(
           child: RefreshIndicator(
-            color: AppColors.primary,
             onRefresh: _loadLeague,
+            color: AppColors.primary,
             child: _miembros.isEmpty
-                ? const Center(child: Text('Aún no hay más participantes', style: TextStyle(color: AppColors.textMuted)))
-                : ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                ? const Center(child: Text('Aún no hay puntos registrados', style: TextStyle(color: AppColors.textMuted)))
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                     itemCount: _miembros.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 6),
-                    itemBuilder: (ctx, i) {
-                      final m = _miembros[i];
-                      final user = m['usuarios'] as Map<String, dynamic>?;
-                      final username = user?['username'] as String? ?? 'Jugador';
+                    itemBuilder: (context, index) {
+                      final m = _miembros[index];
+                      final isMe = m['user_id'] == currentUserId;
+                      final username = (m['usuarios']?['username'] as String?) ?? 'Usuario';
+                      final avatarUrl = m['usuarios']?['avatar_url'] as String?;
                       final pts = (m['puntos_totales'] as num?)?.toInt() ?? 0;
-                      final avatarUrl = user?['avatar_url'] as String?;
-                      final initials = username.length >= 2 ? username.substring(0, 2).toUpperCase() : username.toUpperCase();
-                      final isMe = currentUserId == m['user_id'];
-                      final bool isAdminOfLeague = liga['creador_id'] == currentUserId;
-
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: isMe ? AppColors.primary.withOpacity(0.1) : AppColors.bgCard,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isMe ? AppColors.primary : const Color(0xFF1E293B),
-                            width: isMe ? 1.5 : 1,
+                      final pos = m['posicion'] ?? (index + 1);
+                      final valor = (m['valor_equipo'] as num?)?.toDouble() ?? 0.0;
+                      final isAdminOfLeague = liga['creador_id'] == currentUserId;
+                      return GestureDetector(
+                        onTap: () {
+                          if (isMe) {
+                            context.push('/my-team?tab=1');
+                          } else {
+                            context.push(
+                              '/league/user-team?userId=${m['user_id']}&username=${Uri.encodeComponent(username)}',
+                            );
+                          }
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: isMe ? AppColors.primary.withOpacity(0.05) : AppColors.bgCard,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isMe ? AppColors.primary.withOpacity(0.5) : Colors.white.withOpacity(0.05),
+                              width: isMe ? 2 : 1,
+                            ),
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 36,
-                              child: Text(
-                                '${i + 1}',
-                                style: TextStyle(
-                                  color: i == 0 ? const Color(0xFFFFD700) : i == 1 ? const Color(0xFFC0C0C0) : i == 2 ? const Color(0xFFCD7F32) : AppColors.textMuted,
-                                  fontSize: i < 3 ? 18 : 15,
-                                  fontWeight: FontWeight.w800,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 30,
+                                child: Text(
+                                  '#$pos',
+                                  style: TextStyle(
+                                    color: pos <= 3 ? AppColors.primary : AppColors.textMuted,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                  ),
                                 ),
-                                textAlign: TextAlign.center,
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppColors.bgCardLight,
-                                image: avatarUrl != null ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover) : null,
+                              const SizedBox(width: 8),
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: AppColors.bgDark,
+                                backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                                child: avatarUrl == null ? const Icon(Icons.person_rounded, size: 20, color: Colors.white24) : null,
                               ),
-                              child: avatarUrl == null
-                                  ? Center(child: Text(initials, style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700, fontSize: 12)))
-                                  : null,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              flex: 3,
-                              child: Text(
-                                username + (isMe ? ' (tú)' : ''),
-                                style: Theme.of(context).textTheme.titleMedium,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Text(
-                              '$pts pts',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: AppColors.textPrimary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                              textAlign: TextAlign.right,
-                            ),
-                            if (isAdminOfLeague && !isMe) ...[
                               const SizedBox(width: 12),
-                              IconButton(
-                                constraints: const BoxConstraints(),
-                                padding: EdgeInsets.zero,
-                                icon: const Icon(Icons.person_remove_outlined, color: AppColors.error, size: 18),
-                                onPressed: () => _confirmKickUser(m['user_id'] as String, username),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      username + (isMe ? ' (tú)' : ''),
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      'Valor: ${(valor / 1000000).toStringAsFixed(1)}M',
+                                      style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
                               ),
+                              Text(
+                                '$pts pts',
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                              if (isAdminOfLeague && !isMe) ...[
+                                const SizedBox(width: 12),
+                                IconButton(
+                                  constraints: const BoxConstraints(),
+                                  padding: EdgeInsets.zero,
+                                  icon: const Icon(Icons.person_remove_outlined, color: AppColors.error, size: 18),
+                                  onPressed: () => _confirmKickUser(m['user_id'] as String, username),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       );
                     },
@@ -320,6 +370,36 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildJornadaChip(String? id, String label) {
+    final isSelected = _selectedJornadaId == id;
+    return GestureDetector(
+      onTap: () {
+        if (isSelected) return;
+        setState(() {
+          _selectedJornadaId = id;
+          _loadLeague();
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? AppColors.primary : Colors.white10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.black : Colors.white70,
+            fontWeight: FontWeight.w800,
+            fontSize: 12,
+          ),
+        ),
+      ),
     );
   }
 
@@ -391,14 +471,14 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.bgCard,
-        title: const Text('¿Expulsar usuario?'),
-        content: Text('¿Estás seguro de que quieres expulsar a $username de la liga?'),
+        title: Text('¿Expulsar a $username?'),
+        content: const Text('El usuario perderá todo su equipo y progreso en esta liga.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await _kickUser(userId);
+              _kickUser(userId);
             },
             child: const Text('EXPULSAR', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w800)),
           ),
@@ -410,12 +490,17 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   Future<void> _kickUser(String userId) async {
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client.from('usuarios_ligas').delete().eq('liga_id', _liga!['id']).eq('user_id', userId);
+      await Supabase.instance.client
+          .from('usuarios_ligas')
+          .delete()
+          .eq('user_id', userId)
+          .eq('liga_id', _liga!['id']);
+      
       await _loadLeague();
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al expulsar: $e')));
       }
     }
   }

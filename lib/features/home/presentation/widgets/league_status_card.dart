@@ -8,7 +8,11 @@ class LeagueStatusCard extends StatelessWidget {
   final int posicion;
   final double puntos;
   final double ultimaJornada;
-  final VoidCallback? onSettingsTap;
+  final bool isActive;
+  final bool isAdmin;
+  final VoidCallback? onDelete;
+  final VoidCallback? onLeave;
+  final VoidCallback? onInvite;
 
   const LeagueStatusCard({
     super.key,
@@ -17,13 +21,19 @@ class LeagueStatusCard extends StatelessWidget {
     required this.posicion,
     required this.puntos,
     required this.ultimaJornada,
-    this.onSettingsTap,
+    this.isActive = false,
+    this.isAdmin = false,
+    this.onDelete,
+    this.onLeave,
+    this.onInvite,
   });
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      gradient: AppColors.primaryGradient,
+      gradient: isActive 
+        ? AppColors.primaryGradient 
+        : const LinearGradient(colors: [AppColors.bgCardLight, AppColors.bgDark]),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -45,19 +55,7 @@ class LeagueStatusCard extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              if (onSettingsTap != null)
-                GestureDetector(
-                  onTap: onSettingsTap,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.settings_rounded, color: Colors.white, size: 16),
-                  ),
-                )
-              else
+              if (isActive)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -68,11 +66,23 @@ class LeagueStatusCard extends StatelessWidget {
                     '🏆 ACTIVA',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
+              const SizedBox(width: 8),
+              if (isAdmin) ...[
+                // Iconos para ADMIN
+                _ActionButton(icon: Icons.person_add_rounded, color: Colors.blue, onTap: onInvite),
+                const SizedBox(width: 6),
+                _ActionButton(icon: Icons.logout_rounded, color: Colors.orange, onTap: onLeave),
+                const SizedBox(width: 6),
+                _ActionButton(icon: Icons.delete_forever_rounded, color: AppColors.error, onTap: onDelete),
+              ] else ...[
+                // Icono para NO ADMIN
+                _ActionButton(icon: Icons.logout_rounded, color: Colors.orange, onTap: onLeave),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -155,4 +165,26 @@ class _StatItem extends StatelessWidget {
     );
   }
 }
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
 
+  const _ActionButton({required this.icon, required this.color, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    if (onTap == null) return const SizedBox.shrink();
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.2),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: color, size: 16),
+      ),
+    );
+  }
+}

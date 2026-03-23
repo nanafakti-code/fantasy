@@ -5,20 +5,30 @@ import '../../../../core/theme/app_theme.dart';
 class PitchView extends StatelessWidget {
   final List<Map<String, dynamic>> players;
   final String formacion;
+  final bool showPoints;
+  final Function(String pos, Map<String, dynamic>? currentPlayer)? onSlotTap;
 
   const PitchView({
     super.key, 
     required this.players,
     required this.formacion,
+    this.showPoints = false,
+    this.onSlotTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Parsear formación (ej: "4-4-2")
+    final parts = formacion.split('-');
+    final numDefs = int.parse(parts[0]);
+    final numMids = int.parse(parts[1]);
+    final numFwds = int.parse(parts[2]);
+
     // Agrupar jugadores por posición
-    final gks = players.where((p) => p['pos'] == 'PT').toList();
-    final defs = players.where((p) => p['pos'] == 'DF').toList();
-    final mids = players.where((p) => p['pos'] == 'CC').toList();
-    final fwds = players.where((p) => p['pos'] == 'DL').toList();
+    final gksIn = players.where((p) => p['pos'] == 'PT').toList();
+    final defsIn = players.where((p) => p['pos'] == 'DF').toList();
+    final midsIn = players.where((p) => p['pos'] == 'CC').toList();
+    final fwdsIn = players.where((p) => p['pos'] == 'DL').toList();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -45,25 +55,25 @@ class PitchView extends StatelessWidget {
           children: [
             CustomPaint(
               painter: _PitchPainter(),
-              child: const SizedBox(height: 480, width: double.infinity),
+              child: const SizedBox(height: 520, width: double.infinity),
             ),
             SizedBox(
-              height: 480,
+              height: 520,
               child: Column(
                 children: [
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 25),
                   // Delanteros
-                  _PlayerRow(players: fwds),
+                  _FormationRow(count: numFwds, players: fwdsIn, defaultPos: 'DL', onSlotTap: onSlotTap, showPoints: showPoints),
                   const Spacer(),
                   // Medios
-                  _PlayerRow(players: mids),
+                  _FormationRow(count: numMids, players: midsIn, defaultPos: 'CC', onSlotTap: onSlotTap, showPoints: showPoints),
                   const Spacer(),
                   // Defensas
-                  _PlayerRow(players: defs),
+                  _FormationRow(count: numDefs, players: defsIn, defaultPos: 'DF', onSlotTap: onSlotTap, showPoints: showPoints),
                   const Spacer(),
                   // Portero
-                  _PlayerRow(players: gks),
-                  const SizedBox(height: 12),
+                  _FormationRow(count: 1, players: gksIn, defaultPos: 'PT', onSlotTap: onSlotTap, showPoints: showPoints),
+                  const SizedBox(height: 15),
                 ],
               ),
             ),
@@ -74,24 +84,84 @@ class PitchView extends StatelessWidget {
   }
 }
 
-class _PlayerRow extends StatelessWidget {
+class _FormationRow extends StatelessWidget {
+  final int count;
   final List<Map<String, dynamic>> players;
+  final String defaultPos;
+  final bool showPoints;
+  final Function(String pos, Map<String, dynamic>? currentPlayer)? onSlotTap;
 
-  const _PlayerRow({required this.players});
+  const _FormationRow({
+    required this.count, 
+    required this.players,
+    required this.defaultPos,
+    this.showPoints = false,
+    this.onSlotTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: players.map((p) => _PlayerTile(player: p)).toList(),
+      children: List.generate(count, (index) {
+        if (index < players.length) {
+          return _PlayerTile(player: players[index], onSlotTap: onSlotTap, showPoints: showPoints);
+        } else {
+          return _EmptySlot(pos: defaultPos, onSlotTap: onSlotTap);
+        }
+      }),
+    );
+  }
+}
+
+class _EmptySlot extends StatelessWidget {
+  final String pos;
+  final Function(String pos, Map<String, dynamic>? currentPlayer)? onSlotTap;
+  const _EmptySlot({required this.pos, this.onSlotTap});
+
+  Color get _color {
+    if (pos == 'PT') return AppColors.goalkeeper;
+    if (pos == 'DF') return AppColors.defender;
+    if (pos == 'CC') return AppColors.midfielder;
+    return AppColors.forward;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onSlotTap?.call(pos, null),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.2),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _color.withOpacity(0.4),
+                width: 2,
+                style: BorderStyle.solid,
+              ),
+            ),
+            child: Center(
+              child: Icon(Icons.add, color: _color.withOpacity(0.5), size: 24),
+            ),
+          ),
+          const SizedBox(height: 24), // Espacio para el nombre vacío
+        ],
+      ),
     );
   }
 }
 
 class _PlayerTile extends StatelessWidget {
   final Map<String, dynamic> player;
+  final bool showPoints;
+  final Function(String pos, Map<String, dynamic>? currentPlayer)? onSlotTap;
 
-  const _PlayerTile({required this.player});
+  const _PlayerTile({required this.player, this.showPoints = false, this.onSlotTap});
 
   Color get _posColor {
     switch (player['pos'] as String) {
@@ -107,7 +177,13 @@ class _PlayerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final pts = player['pts'] as int? ?? 0;
     return GestureDetector(
-      onTap: () => context.push('/player/${player['id']}'),
+      onTap: () {
+        if (onSlotTap != null) {
+          onSlotTap!(player['pos'] as String, player);
+        } else {
+          context.push('/player/${player['id']}');
+        }
+      },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -116,28 +192,50 @@ class _PlayerTile extends StatelessWidget {
             child: Material(
               color: Colors.transparent,
               child: Container(
-                width: 48,
-                height: 48,
+                width: 60,
+                height: 60,
                 decoration: BoxDecoration(
                   color: _posColor.withOpacity(0.2),
                   shape: BoxShape.circle,
-                  border: Border.all(color: _posColor, width: 2),
+                  border: Border.all(color: _posColor, width: 2.5),
                   boxShadow: [
                     BoxShadow(
-                      color: _posColor.withOpacity(0.3),
-                      blurRadius: 8,
-                      spreadRadius: 1,
+                      color: _posColor.withOpacity(0.4),
+                      blurRadius: 10,
+                      spreadRadius: 2,
                     ),
                   ],
                 ),
-                child: Center(
-                  child: Text(
-                    player['initials'] as String,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
-                    ),
+                child: Padding(
+                  padding: const EdgeInsets.all(3.0),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (player['foto_url'] != null && (player['foto_url'] as String).isNotEmpty)
+                        ClipOval(
+                          child: Transform.scale(
+                            scale: 1.4,
+                            child: Image.network(
+                              player['foto_url'],
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.cover,
+                              alignment: const Alignment(0, -0.3),
+                              errorBuilder: (c, e, s) => Center(
+                                child: Text(
+                                  player['initials'] as String,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Text(
+                          player['initials'] as String,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -161,22 +259,24 @@ class _PlayerTile extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ),
-          const SizedBox(height: 2),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: pts > 0 ? AppColors.success.withOpacity(0.8) : Colors.black45,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              '$pts pts',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 8,
-                fontWeight: FontWeight.w700,
+          if (showPoints) ...[
+            const SizedBox(height: 2),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: pts > 0 ? AppColors.success.withOpacity(0.8) : Colors.black45,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '$pts pts',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

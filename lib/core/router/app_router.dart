@@ -10,8 +10,10 @@ import '../../features/market/presentation/screens/market_screen.dart';
 import '../../features/league/presentation/screens/league_screen.dart';
 import '../../features/league/presentation/screens/create_league_screen.dart';
 import '../../features/league/presentation/screens/join_league_screen.dart';
+import '../../features/league/presentation/screens/user_team_screen.dart';
 import '../../features/player_detail/presentation/screens/player_detail_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
+import '../../features/profile/presentation/screens/account_settings_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -39,7 +41,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/my-team',
             name: 'my-team',
-            builder: (context, state) => const MyTeamScreen(),
+            builder: (context, state) {
+              final tab = int.tryParse(state.uri.queryParameters['tab'] ?? '0') ?? 0;
+              return MyTeamScreen(initialTab: tab);
+            },
           ),
           GoRoute(
             path: '/market',
@@ -50,19 +55,30 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/league',
             name: 'league',
             builder: (context, state) => const LeagueScreen(),
-          ),
-          GoRoute(
-            path: '/league/create',
-            name: 'create-league',
-            builder: (context, state) => const CreateLeagueScreen(),
-          ),
-          GoRoute(
-            path: '/league/join',
-            name: 'join-league',
-            builder: (context, state) {
-              final code = state.uri.queryParameters['code'];
-              return JoinLeagueScreen(codigo: code);
-            },
+            routes: [
+              GoRoute(
+                path: 'create',
+                name: 'create-league',
+                builder: (context, state) => const CreateLeagueScreen(),
+              ),
+              GoRoute(
+                path: 'join',
+                name: 'join-league',
+                builder: (context, state) {
+                  final code = state.uri.queryParameters['code'];
+                  return JoinLeagueScreen(codigo: code);
+                },
+              ),
+              GoRoute(
+                path: 'user-team',
+                name: 'user-team',
+                builder: (context, state) {
+                  final userId = state.uri.queryParameters['userId']!;
+                  final username = state.uri.queryParameters['username']!;
+                  return UserTeamScreen(userId: userId, username: username);
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -86,6 +102,13 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/profile',
         name: 'profile',
         builder: (context, state) => const ProfileScreen(),
+        routes: [
+          GoRoute(
+            path: 'settings',
+            name: 'account-settings',
+            builder: (context, state) => const AccountSettingsScreen(),
+          ),
+        ],
       ),
     ],
   );

@@ -266,7 +266,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     leading: const Icon(Icons.settings_outlined, color: AppColors.textPrimary),
                     title: const Text('Ajustes de la cuenta', style: TextStyle(color: AppColors.textPrimary)),
                     trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
-                    onTap: () {},
+                    onTap: () => context.push('/profile/settings'),
                   ),
                   const Divider(color: AppColors.bgCardLight, height: 1),
                   ListTile(
