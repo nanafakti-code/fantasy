@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
+import '../../../../core/widgets/main_scaffold.dart';
 
 class LeagueScreen extends ConsumerStatefulWidget {
   const LeagueScreen({super.key});
@@ -26,31 +27,43 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
   }
 
   Future<void> _loadLeague() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
+    
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // Buscar liga del usuario
-      final membership = await Supabase.instance.client
-          .from('usuarios_ligas')
-          .select('liga_id, ligas(*)')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      // Leer la liga seleccionada del provider global
+      String? ligaId = ref.read(selectedLeagueIdProvider);
 
-      if (membership == null) {
-        if (mounted) setState(() { _liga = null; _isLoading = false; });
-        return;
+      // Si no hay liga seleccionada aún, buscamos la primera del usuario
+      if (ligaId == null) {
+        final membership = await Supabase.instance.client
+            .from('usuarios_ligas')
+            .select('liga_id')
+            .eq('user_id', user.id)
+            .maybeSingle(); // Esto fallará si tiene varias, pero cargará el home antes
+            
+        if (membership == null) {
+          if (mounted) setState(() { _liga = null; _isLoading = false; });
+          return;
+        }
+        ligaId = membership['liga_id'];
       }
 
-      final ligaData = membership['ligas'] as Map<String, dynamic>;
-      final ligaId = membership['liga_id'];
+      // Cargar DATOS DE LA LIGA
+      final ligaData = await Supabase.instance.client
+          .from('ligas')
+          .select('*')
+          .eq('id', ligaId!)
+          .single();
 
-      // Cargar miembros de la liga con sus datos
+      // Cargar MIEMBROS de esta liga
       final miembros = await Supabase.instance.client
           .from('usuarios_ligas')
-          .select('puntos_totales, posicion, usuarios(username, avatar_url)')
-          .eq('liga_id', ligaId)
+          .select('user_id, puntos_totales, posicion, usuarios(username, avatar_url)')
+          .eq('liga_id', ligaId!)
           .order('puntos_totales', ascending: false);
 
       if (mounted) {
@@ -67,6 +80,13 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Escuchar cambios en la liga seleccionada para recargar si el usuario swipéo en el Home
+    ref.listen(selectedLeagueIdProvider, (previous, next) {
+      if (next != previous && next != null) {
+        _loadLeague();
+      }
+    });
+
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.bgDark,
@@ -124,7 +144,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
 
     return Column(
       children: [
-        // Header
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
           child: Row(
@@ -141,7 +160,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                   ],
                 ),
               ),
-              // Botón admin (solo si es creador)
               if (liga['creador_id'] == currentUserId) ...[
                 IconButton(
                   icon: const Icon(Icons.settings_outlined, color: AppColors.textSecondary, size: 22),
@@ -149,7 +167,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                 ),
                 const SizedBox(width: 8),
               ],
-              // Botón copiar código
               GestureDetector(
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: codigo));
@@ -202,8 +219,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
             ],
           ),
         ),
-
-        // Cabecera tabla
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
@@ -214,8 +229,6 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
             ],
           ),
         ),
-
-        // Lista de miembros reales
         Expanded(
           child: RefreshIndicator(
             color: AppColors.primary,
@@ -234,7 +247,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                       final avatarUrl = user?['avatar_url'] as String?;
                       final initials = username.length >= 2 ? username.substring(0, 2).toUpperCase() : username.toUpperCase();
                       final isMe = currentUserId == m['user_id'];
-                      final bool isAdmin = liga['creador_id'] == currentUserId;
+                      final bool isAdminOfLeague = liga['creador_id'] == currentUserId;
 
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -290,13 +303,13 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                               ),
                               textAlign: TextAlign.right,
                             ),
-                            if (isAdmin && !isMe) ...[
+                            if (isAdminOfLeague && !isMe) ...[
                               const SizedBox(width: 12),
                               IconButton(
                                 constraints: const BoxConstraints(),
                                 padding: EdgeInsets.zero,
                                 icon: const Icon(Icons.person_remove_outlined, color: AppColors.error, size: 18),
-                                onPressed: () => _confirmKickUser(m['user_id'], username),
+                                onPressed: () => _confirmKickUser(m['user_id'] as String, username),
                               ),
                             ],
                           ],

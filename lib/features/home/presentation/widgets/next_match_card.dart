@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -13,8 +12,6 @@ class NextMatchCard extends StatefulWidget {
 }
 
 class _NextMatchCardState extends State<NextMatchCard> {
-  Timer? _timer;
-  Duration _remaining = Duration.zero;
   bool _isLoading = true;
   Map<String, dynamic>? _nextMatch;
   List<dynamic> _allJornadaMatches = [];
@@ -57,6 +54,9 @@ class _NextMatchCardState extends State<NextMatchCard> {
           .single();
       
       _jornadaNum = leagueData['jornada_actual'];
+      // Si la liga es nueva (jornada 1), la forzamos a 27 para que coincida con el calendario real
+      if (_jornadaNum == 1) _jornadaNum = 27; 
+      
       final division = leagueData['division'];
 
       // 2. Obtener la ID de la jornada
@@ -84,16 +84,11 @@ class _NextMatchCardState extends State<NextMatchCard> {
           orElse: () => matches.first
         );
 
-        final DateTime matchTime = DateTime.parse(preferredMatch['fecha_hora']);
-        final now = DateTime.now();
-        
         if (mounted) {
           setState(() {
             _nextMatch = preferredMatch;
-            _remaining = matchTime.isAfter(now) ? matchTime.difference(now) : Duration.zero;
             _isLoading = false;
           });
-          _startTimer();
         }
       } else {
         if (mounted) setState(() => _isLoading = false);
@@ -101,23 +96,6 @@ class _NextMatchCardState extends State<NextMatchCard> {
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_remaining.inSeconds > 0) {
-        if (mounted) setState(() => _remaining -= const Duration(seconds: 1));
-      } else {
-        _timer?.cancel();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
   }
 
   void _showAllMatches(BuildContext context) {
@@ -143,13 +121,32 @@ class _NextMatchCardState extends State<NextMatchCard> {
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Expanded(child: Text(m['equipo_local']['nombre'], style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Flexible(child: Text(m['equipo_local']['nombre'], style: const TextStyle(fontSize: 11), textAlign: TextAlign.right, overflow: TextOverflow.ellipsis)),
+                              const SizedBox(width: 8),
+                              _SmallShield(url: m['equipo_local']['escudo_url']),
+                            ],
+                          ),
+                        ),
                         const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          padding: EdgeInsets.symmetric(horizontal: 10),
                           child: Text('vs', style: TextStyle(color: AppColors.textMuted, fontSize: 10, fontWeight: FontWeight.bold)),
                         ),
-                        Expanded(child: Text(m['equipo_visit']['nombre'], style: const TextStyle(fontSize: 12))),
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            children: [
+                              _SmallShield(url: m['equipo_visit']['escudo_url']),
+                              const SizedBox(width: 8),
+                              Flexible(child: Text(m['equipo_visit']['nombre'], style: const TextStyle(fontSize: 11), overflow: TextOverflow.ellipsis)),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   );
@@ -163,8 +160,6 @@ class _NextMatchCardState extends State<NextMatchCard> {
     );
   }
 
-  String _pad(int n) => n.toString().padLeft(2, '0');
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -172,10 +167,6 @@ class _NextMatchCardState extends State<NextMatchCard> {
     }
 
     if (_nextMatch == null) return const SizedBox.shrink();
-
-    final h = _pad(_remaining.inHours);
-    final m = _pad(_remaining.inMinutes.remainder(60));
-    final s = _pad(_remaining.inSeconds.remainder(60));
 
     return Column(
       children: [
@@ -197,7 +188,7 @@ class _NextMatchCardState extends State<NextMatchCard> {
               Row(
                 children: [
                   _TeamSide(team: _nextMatch!['equipo_local']),
-                  _CountdownMid(h: h, m: m, s: s),
+                  _MatchMid(),
                   _TeamSide(team: _nextMatch!['equipo_visit']),
                 ],
               ),
@@ -231,13 +222,28 @@ class _TeamSide extends StatelessWidget {
       child: Column(
         children: [
           Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(color: AppColors.bgCardLight, shape: BoxShape.circle),
-            child: const Center(child: Text('🏟️', style: TextStyle(fontSize: 20))),
+            width: 70, height: 70,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.03),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4)),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: team['escudo_url'] != null
+                  ? Image.network(
+                      team['escudo_url'],
+                      fit: BoxFit.contain,
+                      errorBuilder: (c, e, s) => const Center(child: Text('🏟️', style: TextStyle(fontSize: 32))),
+                    )
+                  : const Center(child: Text('🏟️', style: TextStyle(fontSize: 32))),
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Text(team['nombre'], 
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
             textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
         ],
       ),
@@ -245,43 +251,47 @@ class _TeamSide extends StatelessWidget {
   }
 }
 
-class _CountdownMid extends StatelessWidget {
-  final String h, m, s;
-  const _CountdownMid({required this.h, required this.m, required this.s});
-
+class _MatchMid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(color: AppColors.bgCardLight, borderRadius: BorderRadius.circular(12)),
-          child: const Text('VS', style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.bold, fontSize: 16)),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _Unit(v: h, l: 'h'),
-            const Text(' : ', style: TextStyle(color: Colors.white24)),
-            _Unit(v: m, l: 'm'),
-            const Text(' : ', style: TextStyle(color: Colors.white24)),
-            _Unit(v: s, l: 's'),
-          ],
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.bgCardLight, 
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+          ),
+          child: const Text('VS', 
+            style: TextStyle(
+              color: AppColors.primary, 
+              fontWeight: FontWeight.w900, 
+              fontSize: 18,
+              letterSpacing: 1,
+            )
+          ),
         ),
       ],
     );
   }
 }
 
-class _Unit extends StatelessWidget {
-  final String v, l;
-  const _Unit({required this.v, required this.l});
+class _SmallShield extends StatelessWidget {
+  final String? url;
+  const _SmallShield({this.url});
+
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      Text(v, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 15)),
-      Text(l, style: const TextStyle(color: AppColors.textMuted, fontSize: 8)),
-    ]);
+    return SizedBox(
+      width: 20, height: 20,
+      child: (url != null && url!.isNotEmpty)
+          ? Image.network(
+              url!,
+              fit: BoxFit.contain,
+              errorBuilder: (c, e, s) => const Center(child: Text('🏟️', style: TextStyle(fontSize: 10))),
+            )
+          : const Center(child: Text('🏟️', style: TextStyle(fontSize: 10))),
+    );
   }
 }

@@ -64,9 +64,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           setState(() {
             _leagues = leaguesResponse;
             _isLoading = false;
-            // Aseguramos que el índice no se pase de rango si se borra una liga
-            if (_activeLeagueIndex >= _leagues.length) {
-              _activeLeagueIndex = 0;
+            
+            // Si no hay liga seleccionada, cogemos la primera por defecto
+            if (ref.read(selectedLeagueIdProvider) == null && _leagues.isNotEmpty) {
+               ref.read(selectedLeagueIdProvider.notifier).state = _leagues.first['liga_id'];
+            }
+
+            // Reflejar en el índice del carrusel si ya tenemos una seleccionada
+            final currentId = ref.read(selectedLeagueIdProvider);
+            if (currentId != null) {
+              final idx = _leagues.indexWhere((l) => l['liga_id'] == currentId);
+              if (idx != -1) {
+                _activeLeagueIndex = idx;
+                // Si el controlador ya está cargado, lo movemos (si no, lo hará el init)
+                if (_pageController.hasClients) {
+                   _pageController.jumpToPage(idx);
+                }
+              }
             }
           });
           ref.read(userHasLeagueProvider.notifier).state = _leagues.isNotEmpty;
@@ -110,6 +124,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     itemCount: _leagues.length,
                                     onPageChanged: (idx) {
                                       setState(() => _activeLeagueIndex = idx);
+                                      ref.read(selectedLeagueIdProvider.notifier).state = _leagues[idx]['liga_id'];
                                     },
                                     itemBuilder: (context, index) {
                                       final leagueEntry = _leagues[index];
@@ -124,7 +139,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           padding: const EdgeInsets.symmetric(horizontal: 4),
                                           child: LeagueStatusCard(
                                             nombre: liga['nombre'] ?? 'Mi Liga',
-                                            jornada: liga['jornada_actual'] ?? 1,
+                                            jornada: (liga['jornada_actual'] == null || liga['jornada_actual'] == 1) ? 27 : liga['jornada_actual'],
                                             posicion: leagueEntry['posicion'] ?? 0,
                                             puntos: (leagueEntry['puntos_totales'] as num?)?.toDouble() ?? 0.0,
                                             ultimaJornada: 0.0,

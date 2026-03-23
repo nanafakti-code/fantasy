@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
+import '../../../../core/widgets/main_scaffold.dart';
 import '../widgets/pitch_view.dart';
 
 class MyTeamScreen extends ConsumerStatefulWidget {
@@ -31,42 +32,66 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
   }
 
   Future<void> _loadTeamData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
+    
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // 1. Obtener la liga activa y presupuesto del usuario
-      final membership = await Supabase.instance.client
-          .from('usuarios_ligas')
-          .select('presupuesto, puntos_totales, posicion, liga_id, ligas(jornada_actual)')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      // 1. Obtener la liga activa del provider global
+      String? ligaId = ref.read(selectedLeagueIdProvider);
 
-      if (membership == null) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
+      if (ligaId == null) {
+        // Fallback: Buscar la primera disponible si no hay nada en el provider
+        final membership = await Supabase.instance.client
+            .from('usuarios_ligas')
+            .select('liga_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+            
+        if (membership == null) {
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        }
+        ligaId = membership['liga_id'];
       }
 
-      final ligaId = membership['liga_id'];
-      
-      // 2. Obtener el equipo fantasy
+      // 2. Obtener datos de membresía (presupuesto, puntos, etc)
+      final membership = await Supabase.instance.client
+          .from('usuarios_ligas')
+          .select('presupuesto, puntos_totales, posicion')
+          .eq('user_id', user.id)
+          .eq('liga_id', ligaId!)
+          .single();
+
+      // 3. Obtener el equipo fantasy de ESTA liga
       final equipo = await Supabase.instance.client
           .from('equipos_fantasy')
           .select('id, formacion')
           .eq('user_id', user.id)
-          .eq('liga_id', ligaId)
+          .eq('liga_id', ligaId!)
           .maybeSingle();
 
       if (equipo == null) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
+         // Si no tiene equipo en esta liga, mostramos vacío pero cargamos stats
+         if (mounted) {
+           setState(() {
+            _presupuesto = (membership['presupuesto'] as num?)?.toDouble() ?? 50000000.0;
+            _puntosTotales = (membership['puntos_totales'] as num?)?.toInt() ?? 0;
+            _posicion = membership['posicion'] ?? 0;
+            _titulares = [];
+            _suplentes = [];
+            _isLoading = false;
+           });
+         }
+         return;
       }
 
       final equipoId = equipo['id'];
       final formacion = equipo['formacion'] ?? '4-4-2';
 
-      // 3. Obtener los jugadores del equipo
+      // 4. Obtener los jugadores del equipo
       final jugadoresRel = await Supabase.instance.client
           .from('equipo_fantasy_jugadores')
           .select('es_titular, jugador_id, jugadores(*, equipos_reales(nombre, logo_url))')
@@ -82,7 +107,7 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
           'name': j['nombre'],
           'initials': _getInitials(j['nombre']),
           'pos': _mapPos(j['posicion']),
-          'pts': 0, // TODO: Cargar puntos reales de la jornada
+          'pts': 0, 
           'es_titular': rel['es_titular'],
         };
         
@@ -129,6 +154,13 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Escuchar el provider global para sincronizar con el carrusel
+    ref.listen(selectedLeagueIdProvider, (prev, next) {
+      if (next != prev && next != null) {
+        _loadTeamData();
+      }
+    });
+
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.bgDark,

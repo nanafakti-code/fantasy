@@ -1,35 +1,11 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
-import '../../../../models/models.dart';
-
-// Mock data para demo
-final _mockJugadores = List.generate(
-  20,
-  (i) {
-    final posiciones = [
-      Posicion.portero,
-      Posicion.defensa,
-      Posicion.centrocampista,
-      Posicion.delantero
-    ];
-    final pos = posiciones[i % 4];
-    return Jugador(
-      id: 'j$i',
-      nombre: ['Luis', 'Juan', 'Pedro', 'Carlos', 'Antonio'][i % 5],
-      apellidos: ['García', 'Martínez', 'López', 'Ruiz', 'Moreno'][i % 5],
-      posicion: pos,
-      precio: (1000000 + i * 500000).toDouble(),
-      activo: true,
-      equipoNombre:
-          ['Montequinto FC', 'Los Palacios', 'Alcalá CF', 'Sevilla Sur'][i % 4],
-      puntosPromedio: (4 + i * 0.8),
-    );
-  },
-);
+import '../../../../core/widgets/main_scaffold.dart';
 
 class MarketScreen extends ConsumerStatefulWidget {
   const MarketScreen({super.key});
@@ -39,9 +15,28 @@ class MarketScreen extends ConsumerStatefulWidget {
 }
 
 class _MarketScreenState extends ConsumerState<MarketScreen> {
+  bool _isLoading = true;
   String _searchQuery = '';
-  Posicion? _selectedPosition;
+  String? _selectedPosition;
+  String? _selectedTeamId;
+  String? _selectedTeamName;
+  String _sortBy = 'Precio';
+  
+  List<Map<String, dynamic>> _allPlayers = [];
+  List<Map<String, dynamic>> _allTeams = [];
+  double _presupuesto = 0;
+  
   final _searchController = TextEditingController();
+
+  final List<String> _sortOptions = [
+    'Puntos', 'Precio', 'Nombre', 'Equipo', 'Posición', 'Estado'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
 
   @override
   void dispose() {
@@ -49,125 +44,143 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
     super.dispose();
   }
 
-  List<Jugador> get _filteredPlayers {
-    return _mockJugadores.where((j) {
-      final matchSearch = _searchQuery.isEmpty ||
-          j.nombreCompleto
-              .toLowerCase()
-              .contains(_searchQuery.toLowerCase()) ||
-          (j.equipoNombre
-                  ?.toLowerCase()
-                  .contains(_searchQuery.toLowerCase()) ??
-              false);
-      final matchPos =
-          _selectedPosition == null || j.posicion == _selectedPosition;
-      return matchSearch && matchPos;
-    }).toList();
+  Future<void> _loadInitialData() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final ligaId = ref.read(selectedLeagueIdProvider);
+      if (ligaId == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // 1. Cargar presupuesto
+      final membership = await Supabase.instance.client
+          .from('usuarios_ligas')
+          .select('presupuesto')
+          .eq('user_id', user.id)
+          .eq('liga_id', ligaId)
+          .single();
+
+      // 2. Cargar EQUIPOS REALES para el filtro
+      final teamsResponse = await Supabase.instance.client
+          .from('equipos_reales')
+          .select('id, nombre, escudo_url')
+          .order('nombre');
+
+      // 3. Cargar TODOS los jugadores
+      final playersResponse = await Supabase.instance.client
+          .from('jugadores')
+          .select('*, equipo_id(id, nombre, escudo_url)')
+          .order('nombre');
+
+      if (mounted) {
+        setState(() {
+          _presupuesto = (membership['presupuesto'] as num?)?.toDouble() ?? 0;
+          _allTeams = List<Map<String, dynamic>>.from(teamsResponse);
+          _allPlayers = List<Map<String, dynamic>>.from(playersResponse);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('ERROR Mercado: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  Color _posicionColor(Posicion pos) {
-    switch (pos) {
-      case Posicion.portero:
-        return AppColors.goalkeeper;
-      case Posicion.defensa:
-        return AppColors.defender;
-      case Posicion.centrocampista:
-        return AppColors.midfielder;
-      case Posicion.delantero:
-        return AppColors.forward;
+  List<Map<String, dynamic>> get _displayPlayers {
+    Iterable<Map<String, dynamic>> pool = _allPlayers;
+    
+    if (_searchQuery.isNotEmpty) {
+      pool = pool.where((j) {
+        final name = j['nombre'].toString().toLowerCase();
+        final apps = (j['apellidos'] ?? '').toString().toLowerCase();
+        return name.contains(_searchQuery.toLowerCase()) || apps.contains(_searchQuery.toLowerCase());
+      });
     }
+
+    if (_selectedPosition != null) {
+      pool = pool.where((j) => j['posicion'] == _selectedPosition);
+    }
+
+    if (_selectedTeamName != null) {
+      pool = pool.where((j) {
+        final equipoNombre = j['equipo_id']?['nombre']?.toString() ?? '';
+        return equipoNombre == _selectedTeamName;
+      });
+    }
+
+    List<Map<String, dynamic>> result = pool.toList();
+    switch (_sortBy) {
+      case 'Precio':
+        result.sort((a, b) => ((b['precio'] ?? 0) as num).compareTo((a['precio'] ?? 0) as num));
+        break;
+      case 'Puntos':
+        result.sort((a, b) => ((b['puntos_totales'] ?? 0) as num).compareTo((a['puntos_totales'] ?? 0) as num));
+        break;
+      case 'Nombre':
+        result.sort((a, b) => (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString()));
+        break;
+      case 'Equipo':
+        result.sort((a, b) {
+          final ea = a['equipo_id']?['nombre']?.toString() ?? '';
+          final eb = b['equipo_id']?['nombre']?.toString() ?? '';
+          return ea.compareTo(eb);
+        });
+        break;
+      case 'Posición':
+        const posOrder = {
+          'portero': 1,
+          'defensa': 2,
+          'centrocampista': 3,
+          'delantero': 4,
+        };
+        result.sort((a, b) {
+          final rankA = posOrder[a['posicion']] ?? 5;
+          final rankB = posOrder[b['posicion']] ?? 5;
+          if (rankA != rankB) return rankA.compareTo(rankB);
+          return (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString());
+        });
+        break;
+    }
+    
+    return result;
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(selectedLeagueIdProvider, (prev, next) {
+      if (mounted && next != prev && next != null) _loadInitialData();
+    });
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.bgGradient),
-        child: SafeArea(
-          // Patrón SKILL layouts: Column con Expanded wrapping ListView
-          child: Column(
-            children: [
-              _buildHeader(context),
-              _buildBudgetBar(context),
-              _buildFilters(),
-              // ← EXPANDED requerido por SKILL flutter-building-layouts
-              Expanded(
-                child: RefreshIndicator(
-                  color: AppColors.primary,
-                  backgroundColor: AppColors.bgCard,
-                  onRefresh: () async =>
-                      await Future.delayed(const Duration(seconds: 1)),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _filteredPlayers.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (ctx, i) =>
-                        _PlayerMarketCard(
-                      jugador: _filteredPlayers[i],
-                      posColor: _posicionColor(_filteredPlayers[i].posicion),
-                      onTap: () => _showPlayerSheet(context, _filteredPlayers[i]),
+        child: Column(
+          children: [
+            _buildAppBar(context),
+            Expanded(
+              child: ClipRRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.2)),
+                    child: Column(
+                      children: [
+                        _buildCreativeHeader(),
+                        Expanded(
+                          child: _isLoading 
+                            ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                            : _buildPlayerList(),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Mercado',
-              style: Theme.of(context).textTheme.headlineLarge,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBudgetBar(BuildContext context) {
-    const budget = 8200000.0;
-    const maxBudget = 50000000.0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: AppCard(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Presupuesto disponible',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  '8.2M €',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.success,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: budget / maxBudget,
-                backgroundColor: AppColors.bgCardLight,
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(AppColors.success),
-                minHeight: 8,
               ),
             ),
           ],
@@ -176,359 +189,294 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
     );
   }
 
-  Widget _buildFilters() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Column(
+  Widget _buildAppBar(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10, bottom: 10, left: 16, right: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Búsqueda
-          TextField(
-            controller: _searchController,
-            onChanged: (v) => setState(() => _searchQuery = v),
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration: InputDecoration(
-              hintText: 'Buscar jugador o equipo...',
-              prefixIcon: const Icon(Icons.search_rounded,
-                  color: AppColors.textMuted, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear_rounded,
-                          color: AppColors.textMuted, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() => _searchQuery = '');
-                      },
-                    )
-                  : null,
-            ),
+          Navigator.canPop(context) 
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 22),
+                onPressed: () => Navigator.pop(context),
+              )
+            : const SizedBox(width: 48),
+          Column(
+            children: [
+              const Text('MERCADO DE FICHAJES', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 2)),
+              Text('Presupuesto: ${(_presupuesto/1000000).toStringAsFixed(1)}M €', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+            ],
           ),
-          const SizedBox(height: 10),
-          // Filtros de posición
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _FilterChip(
-                  label: 'Todos',
-                  isSelected: _selectedPosition == null,
-                  color: AppColors.primary,
-                  onTap: () => setState(() => _selectedPosition = null),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'PT',
-                  isSelected: _selectedPosition == Posicion.portero,
-                  color: AppColors.goalkeeper,
-                  onTap: () => setState(() => _selectedPosition =
-                      _selectedPosition == Posicion.portero
-                          ? null
-                          : Posicion.portero),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'DF',
-                  isSelected: _selectedPosition == Posicion.defensa,
-                  color: AppColors.defender,
-                  onTap: () => setState(() => _selectedPosition =
-                      _selectedPosition == Posicion.defensa
-                          ? null
-                          : Posicion.defensa),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'CC',
-                  isSelected: _selectedPosition == Posicion.centrocampista,
-                  color: AppColors.midfielder,
-                  onTap: () => setState(() => _selectedPosition =
-                      _selectedPosition == Posicion.centrocampista
-                          ? null
-                          : Posicion.centrocampista),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'DL',
-                  isSelected: _selectedPosition == Posicion.delantero,
-                  color: AppColors.forward,
-                  onTap: () => setState(() => _selectedPosition =
-                      _selectedPosition == Posicion.delantero
-                          ? null
-                          : Posicion.delantero),
-                ),
-              ],
-            ),
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded, color: Colors.white, size: 22),
+            onPressed: () {},
           ),
         ],
       ),
     );
   }
 
-  void _showPlayerSheet(BuildContext context, Jugador jugador) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+  Widget _buildCreativeHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        children: [
+          Container(
+            height: 50,
+            decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(15), boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.1), blurRadius: 15)]),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (v) => setState(() => _searchQuery = v),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Busca a tu estrella...',
+                hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
+                prefixIcon: const Icon(Icons.search_rounded, color: AppColors.primary, size: 22),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: _buildCreativeFilterBox('Favoritos', Icons.star_rounded, null)),
+              const SizedBox(width: 12),
+              Expanded(child: _buildCreativeFilterBox('Equipo', Icons.shield_rounded, _selectedTeamName, hasMore: true, onTap: _showTeamPicker)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _buildCreativeFilterBox('Posición', Icons.grid_view_rounded, _selectedPosition?.toUpperCase(), hasMore: true, onTap: _showPositionPicker)),
+              const SizedBox(width: 12),
+              Expanded(child: _buildSortBox()),
+            ],
+          ),
+        ],
       ),
-      builder: (ctx) => _PlayerBottomSheet(jugador: jugador),
     );
   }
-}
 
-class _PlayerMarketCard extends StatelessWidget {
-  final Jugador jugador;
-  final Color posColor;
-  final VoidCallback onTap;
-
-  const _PlayerMarketCard({
-    required this.jugador,
-    required this.posColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildCreativeFilterBox(String title, IconData icon, String? value, {bool hasMore = false, VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.bgCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF1E293B)),
-        ),
+        decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white.withOpacity(0.05))),
         child: Row(
           children: [
-            Hero(
-              tag: 'player-${jugador.id}',
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: posColor.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: posColor, width: 1.5),
-                ),
-                child: Center(
-                  child: Text(
-                    jugador.initials,
-                    style: TextStyle(
-                      color: posColor,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
+            Icon(icon, color: AppColors.primary, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text(value ?? title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis)),
+            if (hasMore) Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white.withOpacity(0.3), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortBox() {
+    return PopupMenuButton<String>(
+      onSelected: (val) => setState(() => _sortBy = val),
+      color: AppColors.bgCard,
+      offset: const Offset(0, 50),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primary, Color(0xFF10B981)]), borderRadius: BorderRadius.circular(12)),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Icon(Icons.sort_rounded, color: Colors.black, size: 18),
+            Text(_sortBy, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 12)),
+            const Icon(Icons.unfold_more_rounded, color: Colors.black, size: 18),
+          ],
+        ),
+      ),
+      itemBuilder: (ctx) => _sortOptions.map((opt) => PopupMenuItem(value: opt, child: Text(opt, style: const TextStyle(color: Colors.white, fontSize: 14)))).toList(),
+    );
+  }
+
+  void _showPositionPicker() {
+    final positions = {'portero':'PORTEROS', 'defensa':'DEFENSAS', 'centrocampista':'MEDIOS', 'delantero':'DELANTEROS'};
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCard,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: const Text('TODOS', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800)), onTap: () { setState(() => _selectedPosition = null); Navigator.pop(ctx); }),
+            ...positions.entries.map((e) => ListTile(title: Text(e.value, style: const TextStyle(color: Colors.white)), onTap: () { setState(() => _selectedPosition = e.key); Navigator.pop(ctx); })),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showTeamPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.bgCard,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          children: [
+            const Text('SELECCIONAR EQUIPO', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: ListView(
                 children: [
-                  Text(
-                    jugador.nombreCompleto,
-                    style: Theme.of(context).textTheme.titleMedium,
-                    overflow: TextOverflow.ellipsis,
+                  ListTile(
+                    title: const Text('TODOS LOS EQUIPOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    onTap: () { setState(() { _selectedTeamId = null; _selectedTeamName = null; }); Navigator.pop(ctx); },
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    jugador.equipoNombre ?? 'Sin equipo',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  const Divider(color: Colors.white10),
+                  ..._allTeams.map((t) => ListTile(
+                    leading: (t['escudo_url'] != null && t['escudo_url'].toString().isNotEmpty)
+                        ? Image.network(t['escudo_url'], width: 24, height: 24, errorBuilder: (c, e, s) => const Text('🏟️', style: TextStyle(fontSize: 20)))
+                        : const Text('🏟️', style: TextStyle(fontSize: 20)),
+                    title: Text(t['nombre'], style: const TextStyle(color: Colors.white)),
+                    onTap: () { setState(() { _selectedTeamId = t['id']; _selectedTeamName = t['nombre']; }); Navigator.pop(ctx); },
+                  )),
                 ],
               ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  jugador.precioFormateado,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.accent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${jugador.puntosPromedio?.toStringAsFixed(1) ?? '—'} avg',
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(width: 8),
-            PositionChip(
-              label: jugador.posicion.label,
-              color: posColor,
             ),
           ],
         ),
       ),
     );
   }
-}
 
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final Color color;
-  final VoidCallback onTap;
+  Widget _buildPlayerList() {
+    final players = _displayPlayers;
+    if (players.isEmpty) {
+       return ListView(children: [SizedBox(height: 100, child: Center(child: Text('No hay resultados', style: TextStyle(color: Colors.white.withOpacity(0.3))))),]);
+    }
 
-  const _FilterChip({
-    required this.label,
-    required this.isSelected,
-    required this.color,
-    required this.onTap,
-  });
+    // Calcular duplicados de nombres para decidir si mostrar apellidos
+    final nameCounts = <String, int>{};
+    for (var p in players) {
+      final name = p['nombre']?.toString() ?? '';
+      nameCounts[name] = (nameCounts[name] ?? 0) + 1;
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.2) : AppColors.bgCard,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? color : const Color(0xFF1E293B),
-            width: isSelected ? 1.5 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? color : AppColors.textSecondary,
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w400,
-          ),
-        ),
-      ),
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: players.length,
+      itemBuilder: (ctx, i) {
+        final j = players[i];
+        final name = j['nombre']?.toString() ?? '';
+        final isDuplicate = (nameCounts[name] ?? 0) > 1;
+        
+        return _CreativePlayerTile(
+          jugador: j, 
+          showFullName: isDuplicate,
+        );
+      },
     );
   }
 }
 
-class _PlayerBottomSheet extends StatelessWidget {
-  final Jugador jugador;
-  const _PlayerBottomSheet({required this.jugador});
-
-  Color get _posColor {
-    switch (jugador.posicion) {
-      case Posicion.portero:
-        return AppColors.goalkeeper;
-      case Posicion.defensa:
-        return AppColors.defender;
-      case Posicion.centrocampista:
-        return AppColors.midfielder;
-      case Posicion.delantero:
-        return AppColors.forward;
-    }
-  }
+class _CreativePlayerTile extends StatelessWidget {
+  final Map<String, dynamic> jugador;
+  final bool showFullName;
+  const _CreativePlayerTile({required this.jugador, this.showFullName = false});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    final nombre = jugador['nombre'] ?? '';
+    final apellidos = jugador['apellidos'] ?? '';
+    final displayName = showFullName ? '$nombre $apellidos' : nombre;
+    final equipoData = jugador['equipo_id'] as Map<String, dynamic>?;
+    final equipoNombre = equipoData?['nombre'] ?? 'Sin equipo';
+    final precio = (jugador['precio'] as num?)?.toDouble() ?? 0.0;
+    final pos = jugador['posicion'] ?? '';
+    final color = _getPosColor(pos);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withOpacity(0.03))),
+      child: Row(
         children: [
           Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.textMuted,
-              borderRadius: BorderRadius.circular(2),
+            width: 58, height: 58,
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.3))),
+            child: Padding(
+              padding: const EdgeInsets.all(4.0),
+              child: (equipoData?['escudo_url'] != null)
+                  ? Image.network(
+                      equipoData!['escudo_url'],
+                      fit: BoxFit.contain,
+                      errorBuilder: (c, e, s) => const Center(child: Text('⚽', style: TextStyle(fontSize: 24))),
+                    )
+                  : const Center(child: Text('⚽', style: TextStyle(fontSize: 24))),
             ),
           ),
-          const SizedBox(height: 24),
-          Row(
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16), overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(equipoNombre, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11), overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 10),
+                _CreativePosTag(pos: pos, color: color),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: _posColor.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: _posColor, width: 2),
-                ),
-                child: Center(
-                  child: Text(
-                    jugador.initials,
-                    style: TextStyle(
-                      color: _posColor,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 20,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: Colors.black.withOpacity(0.3), borderRadius: BorderRadius.circular(8)),
+                child: const Row(
                   children: [
-                    Text(
-                      jugador.nombreCompleto,
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    Text(
-                      jugador.equipoNombre ?? 'Sin equipo',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    PositionChip(
-                      label: jugador.posicion.fullLabel,
-                      color: _posColor,
-                    ),
+                    Text('PTS ', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 9)),
+                    Text('0', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    jugador.precioFormateado,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  Text(
-                    '${jugador.puntosPromedio?.toStringAsFixed(1) ?? '—'} pts avg',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
+              const SizedBox(height: 8),
+              Text('${(precio / 1000000).toStringAsFixed(1)}M €', style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w800, fontSize: 15)),
             ],
           ),
-          const SizedBox(height: 24),
-          AppButton(
-            label: 'Fichar jugador',
-            icon: const Icon(Icons.add_rounded, color: Colors.black),
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                      '✅ ${jugador.nombre} fichado correctamente'),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(context),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 48),
-            ),
-            child: const Text('Cancelar'),
-          ),
-          const SizedBox(height: 8),
         ],
       ),
+    );
+  }
+
+  Color _getPosColor(String pos) {
+    if (pos == 'portero') return AppColors.goalkeeper;
+    if (pos == 'defensa') return AppColors.defender;
+    if (pos == 'centrocampista') return AppColors.midfielder;
+    return AppColors.forward;
+  }
+}
+
+class _CreativePosTag extends StatelessWidget {
+  final String? pos;
+  final Color color;
+  const _CreativePosTag({this.pos, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    String label = 'PT';
+    if (pos == 'defensa') label = 'DF';
+    if (pos == 'centrocampista') label = 'CC';
+    if (pos == 'delantero') label = 'DL';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6), border: Border.all(color: color.withOpacity(0.5))),
+      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10)),
     );
   }
 }

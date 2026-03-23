@@ -6,6 +6,9 @@ import '../theme/app_theme.dart';
 // Provider global para controlar la visibilidad del menú
 final userHasLeagueProvider = StateProvider<bool>((ref) => false);
 
+// Provider que guarda cuál es la liga seleccionada en el carrusel
+final selectedLeagueIdProvider = StateProvider<String?>((ref) => null);
+
 class MainScaffold extends ConsumerWidget {
   final Widget child;
 
