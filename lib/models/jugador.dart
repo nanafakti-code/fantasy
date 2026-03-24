@@ -1,3 +1,5 @@
+import '../core/utils/currency_formatter.dart';
+
 enum Posicion { portero, defensa, centrocampista, delantero }
 
 extension PosicionX on Posicion {
@@ -43,8 +45,9 @@ class Jugador {
   // Stats calculadas
   final double? puntosPromedio;
   final int? puntosUltimaJornada;
+  final int puntosTotales;
 
-  const Jugador({
+  Jugador({
     required this.id,
     required this.nombre,
     this.apellidos,
@@ -54,9 +57,10 @@ class Jugador {
     this.dorsal,
     this.fotoUrl,
     required this.precio,
-    required this.activo,
+    this.activo = true,
     this.puntosPromedio,
     this.puntosUltimaJornada,
+    this.puntosTotales = 0,
   });
 
   String get nombreCompleto =>
@@ -71,30 +75,40 @@ class Jugador {
   }
 
   factory Jugador.fromJson(Map<String, dynamic> json) {
-    final equipoJson = json['equipos_reales'];
+    // Manejar caso donde equipo_id es un objeto (join) o un String
+    String? equipoId;
+    String? equipoNombre;
+    final equipoRaw = json['equipo_id'];
+    
+    if (equipoRaw is Map) {
+      equipoId = equipoRaw['id']?.toString();
+      equipoNombre = equipoRaw['nombre']?.toString();
+    } else {
+      equipoId = equipoRaw?.toString();
+      equipoNombre = (json['equipos_reales'] as Map?)?['nombre']?.toString();
+    }
+
     return Jugador(
       id: json['id'] as String,
       nombre: json['nombre'] as String,
       apellidos: json['apellidos'] as String?,
-      equipoId: json['equipo_id'] as String?,
-      equipoNombre: equipoJson != null ? equipoJson['nombre'] as String? : null,
+      equipoId: equipoId,
+      equipoNombre: equipoNombre,
       posicion: Posicion.values.firstWhere(
         (e) => e.name == (json['posicion'] as String? ?? 'delantero'),
         orElse: () => Posicion.delantero,
       ),
       dorsal: (json['dorsal'] as num?)?.toInt(),
-      fotoUrl: json['foto_url'] as String?,
-      precio: (json['precio'] as num?)?.toDouble() ?? 1000000,
+      fotoUrl: json['foto_url']?.toString(), // Más seguro que el cast a String?
+      precio: (json['precio'] as num?)?.toDouble() ?? 1000000.0,
       activo: json['activo'] as bool? ?? true,
       puntosPromedio: (json['puntos_promedio'] as num?)?.toDouble(),
       puntosUltimaJornada: (json['puntos_ultima_jornada'] as num?)?.toInt(),
+      puntosTotales: (json['puntos_totales'] as num?)?.toInt() ?? 0,
     );
   }
 
   String get precioFormateado {
-    if (precio >= 1000000) {
-      return '${(precio / 1000000).toStringAsFixed(1)}M';
-    }
-    return '${(precio / 1000).toStringAsFixed(0)}K';
+    return precio.toCurrency;
   }
 }
