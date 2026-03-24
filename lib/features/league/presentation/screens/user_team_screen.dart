@@ -171,7 +171,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
     final now = DateTime.now();
     final abiertaHastaStr = p['clausula_abierta_hasta'];
     final DateTime? abiertaHasta = abiertaHastaStr != null ? DateTime.parse(abiertaHastaStr) : null;
-    final bool canClausulazo = abiertaHasta != null && now.isAfter(abiertaHasta);
+    final bool canClausulazo = abiertaHasta == null || now.isAfter(abiertaHasta);
     final double clausula = (p['clausula'] as num).toDouble();
 
     showModalBottomSheet(
@@ -619,9 +619,6 @@ class _PlayerRivalTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double price = (player['precio'] as num).toDouble();
-    final double clausula = (player['clausula'] as num).toDouble();
-
     final rawPos = player['pos'] ?? '';
     final pos = rawPos == 'portero' ? 'PT' :
                 rawPos == 'defensa' ? 'DF' :
@@ -701,43 +698,67 @@ class _PlayerRivalTile extends StatelessWidget {
             ),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              'V. Merc.: ${NumberFormat.decimalPattern('es_ES').format(price.toInt())}€',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              'Cláusula: ${NumberFormat.decimalPattern('es_ES').format(clausula.toInt())}€',
-              style: const TextStyle(color: Colors.yellow, fontWeight: FontWeight.w900, fontSize: 11),
-            ),
-            _buildClauseCooldown(player['clausula_abierta_hasta']),
-          ],
-        ),
+        trailing: _buildClauseStatus(player['clausula'], player['clausula_abierta_hasta']),
       ),
     );
   }
 
-  Widget _buildClauseCooldown(String? dateStr) {
-    if (dateStr == null) return const SizedBox.shrink();
-    final date = DateTime.parse(dateStr);
-    final now = DateTime.now();
+  Widget _buildClauseStatus(dynamic clausulaAmt, String? openDateStr) {
+    if (clausulaAmt == null) return const SizedBox.shrink();
+    final double amount = (clausulaAmt as num).toDouble();
     
-    if (date.isAfter(now)) {
-      final diff = date.difference(now);
-      final days = diff.inDays;
-      final hours = diff.inHours % 24;
-      
-      return Text(
-        days > 0 ? 'BLOQUEADA: $days d $hours h' : 'BLOQUEADA: $hours h rest.',
-        style: const TextStyle(color: Colors.orange, fontSize: 8, fontWeight: FontWeight.bold),
-      );
+    bool isOpen = true;
+    Duration? remaining;
+    if (openDateStr != null) {
+      final openDate = DateTime.parse(openDateStr);
+      final now = DateTime.now();
+      if (openDate.isAfter(now)) {
+        isOpen = false;
+        remaining = openDate.difference(now);
+      }
     }
-    
-    return const Text('CLÁUSULA ABIERTA', style: TextStyle(color: Colors.green, fontSize: 8, fontWeight: FontWeight.bold));
+
+    final color = isOpen ? Colors.greenAccent : Colors.redAccent;
+    final icon = isOpen ? Icons.lock_open_rounded : Icons.lock_rounded;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'VALOR: ',
+              style: TextStyle(color: Colors.white38, fontSize: 8, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              '${NumberFormat.decimalPattern('es_ES').format((player['precio'] as num).toInt())}€',
+              style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 11),
+            const SizedBox(width: 4),
+            Text(
+              '${NumberFormat.decimalPattern('es_ES').format(amount.toInt())}€',
+              style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 13),
+            ),
+          ],
+        ),
+        if (!isOpen && remaining != null)
+          Text(
+            remaining.inDays > 0 
+              ? '${remaining.inDays}d ${remaining.inHours % 24}h' 
+              : '${remaining.inHours}h ${remaining.inMinutes % 60}m',
+            style: TextStyle(color: color.withOpacity(0.8), fontSize: 8.5, fontWeight: FontWeight.w800),
+          ),
+      ],
+    );
   }
 }
 

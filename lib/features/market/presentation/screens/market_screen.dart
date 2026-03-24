@@ -29,6 +29,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   List<Map<String, dynamic>> _mercadoPlayers = [];
   List<Map<String, dynamic>> _misPujas = [];
   List<Map<String, dynamic>> _misOfertasP2P = [];
+  List<Map<String, dynamic>> _ofertasP2PRecibidas = [];
+  List<Map<String, dynamic>> _ofertasLigaRecibidas = [];
   List<Map<String, dynamic>> _misVentas = [];
   List<Map<String, dynamic>> _ofertasMercado = []; // Ofertas de la liga para MIS ventas
   List<Map<String, dynamic>> _pujasRecibidas = []; // Pujas de otros usuarios para MIS ventas
@@ -103,27 +105,46 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           .select('id, nombre, escudo_url')
           .order('nombre');
       // 3. Cagar jugadores del MERCADO (los que están a la venta en esta liga)
-      var allMarketResponse = await Supabase.instance.client
-          .from('mercado')
-          .select('*, jugador:jugador_id(*, equipo_id(id, nombre, escudo_url))')
-          .eq('liga_id', ligaId);
-          
-      // Si está vacío, generamos los 12 iniciales para esta liga (demo/primera vez)
-      if (allMarketResponse.isEmpty) {
-        await Supabase.instance.client.rpc('refrescar_mercado_liga', params: {'p_liga_id': ligaId});
-        allMarketResponse = await Supabase.instance.client
+      List<Map<String, dynamic>> allMarketResponse = List<Map<String, dynamic>>.from(
+        await Supabase.instance.client
             .from('mercado')
             .select('*, jugador:jugador_id(*, equipo_id(id, nombre, escudo_url))')
-            .eq('liga_id', ligaId);
+            .eq('liga_id', ligaId)
+      );
+          
+      // Comprobar si debemos refrescar (mercado vacío o jugadores de Liga caducados)
+      bool needsRefresh = allMarketResponse.isEmpty;
+      if (!needsRefresh) {
+        final now = DateTime.now();
+        needsRefresh = allMarketResponse.any((p) {
+          if (p['vendedor_id'] != null) return false; // Ignorar jugadores de usuarios
+          final fechaFinStr = p['fecha_fin']?.toString();
+          if (fechaFinStr == null) return true;
+          return now.isAfter(DateTime.parse(fechaFinStr));
+        });
+      }
+
+      if (needsRefresh) {
+        try {
+          await Supabase.instance.client.rpc('refrescar_mercado_liga', params: {'p_liga_id': ligaId});
+          final freshResponse = await Supabase.instance.client
+              .from('mercado')
+              .select('*, jugador:jugador_id(*, equipo_id(id, nombre, escudo_url))')
+              .eq('liga_id', ligaId);
+          allMarketResponse = List<Map<String, dynamic>>.from(freshResponse);
+        } catch (e) {
+          debugPrint('Aviso: No se pudo refrescar el mercado automáticamente: $e');
+        }
       }
            // 2. Jugadores en el mercado (con info de vendedor si existe)
       final marketResponse = await Supabase.instance.client
           .from('mercado')
-          .select('*, jugador:jugador_id(*, equipo_id(*)), vendedor:vendedor_id(username)')
+          .select('*, jugador:jugador_id(*, equipo_id(*)), vendedor:vendedor_id(username), pujas(count)')
           .eq('liga_id', ligaId);
       
-      final List<Map<String, dynamic>> mercadoPlayers = List<Map<String, dynamic>>.from(marketResponse.where((p) => p['vendedor_id'] != user.id));
-      final List<Map<String, dynamic>> misVentas = List<Map<String, dynamic>>.from(marketResponse.where((p) => p['vendedor_id'] == user.id));
+      final List<Map<String, dynamic>> marketList = List<Map<String, dynamic>>.from(marketResponse);
+      final List<Map<String, dynamic>> mercadoPlayers = List<Map<String, dynamic>>.from(marketList.where((p) => p['vendedor_id'] != user.id));
+      final List<Map<String, dynamic>> misVentas = List<Map<String, dynamic>>.from(marketList.where((p) => p['vendedor_id'] == user.id));
 
       // 3. Mis pujas Realizadas
       final myBidsResponse = await Supabase.instance.client
@@ -152,6 +173,25 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           .eq('estado', 'pendiente');
 
       final List<Map<String, dynamic>> misOfertasP2P = List<Map<String, dynamic>>.from(p2pOffersResponse);
+
+      // 4b. Cargar OFERTAS P2P RECIBIDAS (De otros usuarios para mis jugadores)
+      final p2pReceivedResponse = await Supabase.instance.client
+          .from('ofertas_jugadores')
+          .select('*, jugador:jugador_id(*, equipo_id(nombre, escudo_url)), comprador:comprador_id(username)')
+          .eq('vendedor_id', user.id)
+          .eq('liga_id', ligaId)
+          .eq('estado', 'pendiente');
+
+      final List<Map<String, dynamic>> ofertasP2PRecibidas = List<Map<String, dynamic>>.from(p2pReceivedResponse);
+
+      // 4c. Cargar OFERTAS DE LA LIGA (De la "máquina")
+      final ligaOffersResponse = await Supabase.instance.client
+          .from('ofertas_mercado')
+          .select('*, mercado:mercado_id(*, jugador:jugador_id(*, equipo_id(nombre, escudo_url)))')
+          .eq('usuario_id', user.id)
+          .eq('estado', 'pendiente');
+      
+      final List<Map<String, dynamic>> ofertasLigaRecibidas = List<Map<String, dynamic>>.from(ligaOffersResponse);
 
       // 5. Cargar HISTORIAL de la liga
       final historyResponse = await Supabase.instance.client
@@ -216,6 +256,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           _misVentas = misVentas;
           _misPujas = misPujas;
           _misOfertasP2P = misOfertasP2P;
+          _ofertasP2PRecibidas = ofertasP2PRecibidas;
+          _ofertasLigaRecibidas = ofertasLigaRecibidas;
           _pujasRecibidas = pujasRecibidas;
           _ofertasMercado = List<Map<String, dynamic>>.from(offersResponse);
           _historial = List<Map<String, dynamic>>.from(historyResponse as List);
@@ -364,6 +406,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                 final bool yaPujado = puja.isNotEmpty;
                 
                 final String? ownerName = item['vendedor']?['username'];
+                final countData = item['pujas'] as List?;
+                final bidCount = (countData != null && countData.isNotEmpty) ? countData[0]['count'] as int : 0;
                 
                 return _PremiumMarketTile(
                   jugador: jugadorData,
@@ -372,6 +416,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                   isOwner: item['vendedor_id'] == Supabase.instance.client.auth.currentUser?.id,
                   ownerName: ownerName,
                   actionLabel: yaPujado ? 'Acciones' : null,
+                  bidCount: bidCount,
                   onAction: () {
                     if (yaPujado) {
                       _showBidActionsMenu(item, puja);
@@ -391,7 +436,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   Widget _buildOperacionesTab() {
     if (_isLoading) return const Center(child: CircularProgressIndicator(color: AppColors.primary));
     
-    if (_misPujas.isEmpty && _misVentas.isEmpty && _misOfertasP2P.isEmpty) {
+    if (_misPujas.isEmpty && _misVentas.isEmpty && _misOfertasP2P.isEmpty && _ofertasP2PRecibidas.isEmpty && _ofertasLigaRecibidas.isEmpty) {
       return Center(child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -462,6 +507,57 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
             );
           }),
         ],
+
+        if (_ofertasLigaRecibidas.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _buildTabHeader('OFERTAS DE LA LIGA'),
+          ..._ofertasLigaRecibidas.map((oferta) {
+            final mercadoRow = oferta['mercado'] ?? {};
+            final jugador = mercadoRow['jugador'] ?? {};
+            final monto = (oferta['monto'] as num?)?.toDouble() ?? 0.0;
+
+            return Column(
+              children: [
+                _PremiumMarketTile(
+                  jugador: jugador,
+                  precioSalida: monto,
+                  fechaFin: null,
+                  ownerName: 'Liga Fantasy',
+                  actionLabel: 'Gestionar',
+                  onAction: () => _showLigaOfferDialog(oferta),
+                ),
+                _buildLigaActionBox(oferta),
+                const SizedBox(height: 12),
+              ],
+            );
+          }),
+        ],
+
+        if (_ofertasP2PRecibidas.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _buildTabHeader('OFERTAS P2P RECIBIDAS'),
+          ..._ofertasP2PRecibidas.map((oferta) {
+            final jugador = oferta['jugador'] ?? {};
+            final monto = (oferta['monto'] as num?)?.toDouble() ?? 0.0;
+            final comprador = oferta['comprador']?['username'] ?? 'Usuario';
+
+            return Column(
+              children: [
+                _PremiumMarketTile(
+                  jugador: jugador,
+                  precioSalida: monto,
+                  fechaFin: null,
+                  ownerName: comprador,
+                  actionLabel: 'Gestionar',
+                  onAction: () => _showP2PManagementDialog(oferta),
+                ),
+                _buildP2PActionBox(oferta),
+                const SizedBox(height: 12),
+              ],
+            );
+          }),
+        ],
+
         if (_misOfertasP2P.isNotEmpty) ...[
           const SizedBox(height: 24),
           _buildTabHeader('MIS OFERTAS A OTROS'),
@@ -511,13 +607,128 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   Future<void> _cancelarOfertaP2P(String ofertaId) async {
     try {
       setState(() => _isLoading = true);
-      await Supabase.instance.client.from('ofertas_jugadores').delete().eq('id', ofertaId);
-      _loadInitialData();
+      final response = await Supabase.instance.client.from('ofertas_jugadores').delete().eq('id', ofertaId).select();
+      
+      if (response.isEmpty) {
+        throw 'No se pudo cancelar la oferta. Puede que ya no exista o no tengas permisos.';
+      }
+
+      await _loadInitialData();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta cancelada')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta cancelada con éxito')));
       }
     } catch (e) {
       debugPrint('Error al cancelar oferta P2P: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent));
+      }
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showP2PManagementDialog(Map<String, dynamic> oferta) {
+    final monto = (oferta['monto'] as num?)?.toDouble() ?? 0.0;
+    final comprador = oferta['comprador']?['username'] ?? 'Usuario';
+    final jugador = oferta['jugador']?['nombre'] ?? 'Jugador';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: Text('Gestionar Oferta por $jugador', style: const TextStyle(color: Colors.white)),
+        content: Text('¿Deseas aceptar la oferta de $comprador por ${CurrencyFormatter.format(monto)}?', style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _rejectP2POffer(oferta['id']);
+            },
+            child: const Text('Rechazar', style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _acceptP2POffer(oferta['id']);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.black),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildP2PActionBox(Map<String, dynamic> oferta) {
+    return Container(
+      margin: const EdgeInsets.only(top: -4, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.05),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => _rejectP2POffer(oferta['id']),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24)),
+              child: const Text('Rechazar', style: TextStyle(color: Colors.white70)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () => _acceptP2POffer(oferta['id']),
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.black),
+              child: const Text('Aceptar', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _acceptP2POffer(String ofertaId) async {
+    try {
+      setState(() => _isLoading = true);
+      final response = await Supabase.instance.client.rpc('aceptar_oferta_p2p', params: {'p_oferta_id': ofertaId});
+      
+      if (response['success'] == true) {
+        await _loadInitialData();
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Venta P2P realizada con éxito!')));
+        }
+      } else {
+        throw response['mensaje'] ?? 'Error desconocido';
+      }
+    } catch (e) {
+      debugPrint('Error al aceptar P2P: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent));
+      }
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _rejectP2POffer(String ofertaId) async {
+    try {
+      setState(() => _isLoading = true);
+      await Supabase.instance.client
+          .from('ofertas_jugadores')
+          .update({'estado': 'rechazada'})
+          .eq('id', ofertaId);
+      
+      await _loadInitialData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta rechazada')));
+      }
+    } catch (e) {
+      debugPrint('Error al rechazar P2P: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -1307,6 +1518,110 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
     );
   }
 
+  void _showLigaOfferDialog(Map<String, dynamic> oferta) {
+    final mercadoRow = oferta['mercado'] ?? {};
+    final jugador = mercadoRow['jugador'] ?? {};
+    final monto = (oferta['monto'] as num?)?.toDouble() ?? 0.0;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: Text('Oferta de la Liga por ${jugador['nombre']}', style: const TextStyle(color: Colors.white)),
+        content: Text('La liga te ofrece ${CurrencyFormatter.format(monto)} por este jugador. ¿Deseas aceptar?', style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _rechazarOfertaLiga(oferta['id']);
+            },
+            child: const Text('Rechazar', style: TextStyle(color: Colors.redAccent)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _aceptarOfertaLiga(oferta['id']);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.black),
+            child: const Text('Vender'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLigaActionBox(Map<String, dynamic> oferta) {
+    return Container(
+      margin: const EdgeInsets.only(top: -4, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.yellow.withOpacity(0.05),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+        border: Border.all(color: Colors.yellow.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => _rechazarOfertaLiga(oferta['id']),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24)),
+              child: const Text('Rechazar', style: TextStyle(color: Colors.white70)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () => _aceptarOfertaLiga(oferta['id']),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.yellow, foregroundColor: Colors.black),
+              child: const Text('Vender a Liga', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _aceptarOfertaLiga(String ofertaId) async {
+    try {
+      setState(() => _isLoading = true);
+      final response = await Supabase.instance.client.rpc('aceptar_oferta_liga_mercado', params: {'p_oferta_id': ofertaId});
+      
+      if (response['success'] == true) {
+        await _loadInitialData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Venta a la liga realizada con éxito!')));
+        }
+      } else {
+        throw response['mensaje'] ?? 'Error desconocido';
+      }
+    } catch (e) {
+      debugPrint('Error al aceptar oferta liga: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent));
+      }
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _rechazarOfertaLiga(String ofertaId) async {
+    try {
+      setState(() => _isLoading = true);
+      await Supabase.instance.client
+          .from('ofertas_mercado')
+          .update({'estado': 'rechazada'})
+          .eq('id', ofertaId);
+      
+      await _loadInitialData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta de la liga rechazada')));
+      }
+    } catch (e) {
+      debugPrint('Error al rechazar oferta liga: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _deleteBid(String pujaId) async {
     try {
       await Supabase.instance.client.from('pujas').delete().eq('id', pujaId);
@@ -1609,6 +1924,7 @@ class _PremiumMarketTile extends StatefulWidget {
   final bool isOwner;
   final String? ownerName;
   final String? actionLabel;
+  final int? bidCount;
   final VoidCallback? onAction;
   const _PremiumMarketTile({
     required this.jugador, 
@@ -1617,6 +1933,7 @@ class _PremiumMarketTile extends StatefulWidget {
     this.isOwner = false,
     this.ownerName,
     this.actionLabel,
+    this.bidCount,
     this.onAction,
   });
 
@@ -1818,18 +2135,32 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: widget.onAction ?? () {},
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: widget.actionLabel == 'Acciones' ? AppColors.primary : (widget.isOwner ? AppColors.accent : AppColors.success),
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        child: Text(
-                          widget.actionLabel ?? (widget.isOwner ? 'Quitar' : 'Fichar'),
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (widget.bidCount != null)
+                             Padding(
+                               padding: const EdgeInsets.only(bottom: 4, right: 4),
+                               child: Text(
+                                 'Pujas: ${widget.bidCount}',
+                                 style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold),
+                               ),
+                             ),
+                          ElevatedButton(
+                            onPressed: widget.onAction ?? () {},
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: widget.actionLabel == 'Acciones' ? AppColors.primary : (widget.isOwner ? AppColors.accent : AppColors.success),
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: Text(
+                              widget.actionLabel ?? (widget.isOwner ? 'Quitar' : 'Fichar'),
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
