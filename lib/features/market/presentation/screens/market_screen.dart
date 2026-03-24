@@ -28,11 +28,14 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   List<Map<String, dynamic>> _allPlayers = [];
   List<Map<String, dynamic>> _mercadoPlayers = [];
   List<Map<String, dynamic>> _misPujas = [];
+  List<Map<String, dynamic>> _misOfertasP2P = [];
   List<Map<String, dynamic>> _misVentas = [];
-  List<Map<String, dynamic>> _ofertasMercado = [];
+  List<Map<String, dynamic>> _ofertasMercado = []; // Ofertas de la liga para MIS ventas
+  List<Map<String, dynamic>> _pujasRecibidas = []; // Pujas de otros usuarios para MIS ventas
   List<Map<String, dynamic>> _historial = [];
   List<Map<String, dynamic>> _allTeams = [];
   Map<String, String> _playerOwners = {}; // jugador_id -> username
+  String _ligaNombre = 'CARGANDO...';
   double _presupuesto = 0;
   double _totalPujado = 0;
   int _playerCount = 0;
@@ -69,13 +72,16 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         return;
       }
 
-      // 1. Cargar presupuesto
+      // 1. Cargar presupuesto y nombre de la liga
       final membership = await Supabase.instance.client
           .from('usuarios_ligas')
-          .select('presupuesto')
+          .select('presupuesto, liga:liga_id(nombre)')
           .eq('user_id', user.id)
           .eq('liga_id', ligaId)
           .single();
+      
+      final ligaData = membership['liga'] as Map?;
+      final String ligaNombre = (ligaData?['nombre'] ?? 'LIGA FANTASY').toString().toUpperCase();
 
       // 1b. Cargar total pujado para esta liga
       final bidsResponse = await Supabase.instance.client
@@ -110,16 +116,42 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
             .select('*, jugador:jugador_id(*, equipo_id(id, nombre, escudo_url))')
             .eq('liga_id', ligaId);
       }
+           // 2. Jugadores en el mercado (con info de vendedor si existe)
+      final marketResponse = await Supabase.instance.client
+          .from('mercado')
+          .select('*, jugador:jugador_id(*, equipo_id(*)), vendedor:vendedor_id(username)')
+          .eq('liga_id', ligaId);
+      
+      final List<Map<String, dynamic>> mercadoPlayers = List<Map<String, dynamic>>.from(marketResponse.where((p) => p['vendedor_id'] != user.id));
+      final List<Map<String, dynamic>> misVentas = List<Map<String, dynamic>>.from(marketResponse.where((p) => p['vendedor_id'] == user.id));
 
-      final List<Map<String, dynamic>> marketList = List<Map<String, dynamic>>.from(allMarketResponse);
-      final mercadoPlayers = marketList.where((p) => p['vendedor_id'] != user.id).toList();
-      final misVentas = marketList.where((p) => p['vendedor_id'] == user.id).toList();
-
-      // 4. Cargar MIS PUJAS
-      final pujasResponse = await Supabase.instance.client
+      // 3. Mis pujas Realizadas
+      final myBidsResponse = await Supabase.instance.client
           .from('pujas')
-          .select('*, mercado(id, precio_minimo, fecha_fin, jugador:jugador_id(*, equipo_id(nombre, escudo_url)))')
+          .select('*, mercado:mercado_id(*, jugador:jugador_id(*, equipo_id(*)))')
           .eq('usuario_id', user.id);
+      
+      final List<Map<String, dynamic>> misPujas = List<Map<String, dynamic>>.from(myBidsResponse);
+
+      // 3b. Pujas recibidas por MIS jugadores en venta
+      List<Map<String, dynamic>> pujasRecibidas = [];
+      if (misVentas.isNotEmpty) {
+        final incomingBidsResponse = await Supabase.instance.client
+            .from('pujas')
+            .select('*, usuario:usuario_id(username)')
+            .inFilter('mercado_id', misVentas.map((v) => v['id']).toList());
+        pujasRecibidas = List<Map<String, dynamic>>.from(incomingBidsResponse);
+      }
+
+      // 4. Cargar MIS OFERTAS P2P (Hechas a otros usuarios)
+      final p2pOffersResponse = await Supabase.instance.client
+          .from('ofertas_jugadores')
+          .select('*, jugador:jugador_id(*, equipo_id(nombre, escudo_url)), vendedor:vendedor_id(username)')
+          .eq('comprador_id', user.id)
+          .eq('liga_id', ligaId)
+          .eq('estado', 'pendiente');
+
+      final List<Map<String, dynamic>> misOfertasP2P = List<Map<String, dynamic>>.from(p2pOffersResponse);
 
       // 5. Cargar HISTORIAL de la liga
       final historyResponse = await Supabase.instance.client
@@ -176,13 +208,16 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
       if (mounted) {
         setState(() {
           _presupuesto = (membership['presupuesto'] as num?)?.toDouble() ?? 0;
+          _ligaNombre = ligaNombre;
           _totalPujado = totalBids;
           _playerCount = squadSize;
           _allTeams = List<Map<String, dynamic>>.from(teamsResponse);
           _mercadoPlayers = mercadoPlayers;
           _misVentas = misVentas;
-          _ofertasMercado = List<Map<String, dynamic>>.from(offersResponse as List);
-          _misPujas = List<Map<String, dynamic>>.from(pujasResponse as List);
+          _misPujas = misPujas;
+          _misOfertasP2P = misOfertasP2P;
+          _pujasRecibidas = pujasRecibidas;
+          _ofertasMercado = List<Map<String, dynamic>>.from(offersResponse);
           _historial = List<Map<String, dynamic>>.from(historyResponse as List);
           _playerOwners = ownersMap;
           _allPlayers = List<Map<String, dynamic>>.from(playersResponse);
@@ -328,11 +363,14 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                 );
                 final bool yaPujado = puja.isNotEmpty;
                 
+                final String? ownerName = item['vendedor']?['username'];
+                
                 return _PremiumMarketTile(
                   jugador: jugadorData,
                   precioSalida: (item['precio_minimo'] as num?)?.toDouble(),
                   fechaFin: fechaFin,
                   isOwner: item['vendedor_id'] == Supabase.instance.client.auth.currentUser?.id,
+                  ownerName: ownerName,
                   actionLabel: yaPujado ? 'Acciones' : null,
                   onAction: () {
                     if (yaPujado) {
@@ -353,7 +391,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   Widget _buildOperacionesTab() {
     if (_isLoading) return const Center(child: CircularProgressIndicator(color: AppColors.primary));
     
-    if (_misPujas.isEmpty && _misVentas.isEmpty) {
+    if (_misPujas.isEmpty && _misVentas.isEmpty && _misOfertasP2P.isEmpty) {
       return Center(child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -381,6 +419,9 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
               orElse: () => {}
             );
             
+            // Buscar pujas de otros usuarios
+            final pujasDeOtros = _pujasRecibidas.where((p) => p['mercado_id'] == venta['id']).toList();
+            
             return Column(
               children: [
                 _PremiumMarketTile(
@@ -392,6 +433,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                 ),
                 if (oferta.isNotEmpty)
                   _buildLeagueOfferBox(oferta, venta),
+                if (pujasDeOtros.isNotEmpty)
+                  ...pujasDeOtros.map((p) => _buildUserBidBox(p, venta)),
                 const SizedBox(height: 12),
               ],
             );
@@ -419,8 +462,64 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
             );
           }),
         ],
+        if (_misOfertasP2P.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _buildTabHeader('MIS OFERTAS A OTROS'),
+          ..._misOfertasP2P.map((oferta) {
+            final jugador = oferta['jugador'] ?? {};
+            final monto = (oferta['monto'] as num?)?.toDouble() ?? 0.0;
+            final String? ownerName = oferta['vendedor']?['username'];
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _PremiumMarketTile(
+                jugador: jugador,
+                precioSalida: monto,
+                fechaFin: null, // P2P no tiene tiempo fin de la liga
+                ownerName: ownerName ?? 'Otro usuario',
+                actionLabel: 'Cancelar',
+                onAction: () => _confirmarCancelarOfertaP2P(oferta['id']),
+              ),
+            );
+          }),
+        ],
       ],
     );
+  }
+
+  void _confirmarCancelarOfertaP2P(String ofertaId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text('Cancelar Oferta'),
+        content: const Text('¿Estás seguro de que deseas retirar esta oferta?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('No')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _cancelarOfertaP2P(ofertaId);
+            },
+            child: const Text('Sí, Cancelar', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelarOfertaP2P(String ofertaId) async {
+    try {
+      setState(() => _isLoading = true);
+      await Supabase.instance.client.from('ofertas_jugadores').delete().eq('id', ofertaId);
+      _loadInitialData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta cancelada')));
+      }
+    } catch (e) {
+      debugPrint('Error al cancelar oferta P2P: $e');
+      setState(() => _isLoading = false);
+    }
   }
 
   Widget _buildLeagueOfferBox(Map<String, dynamic> oferta, Map<String, dynamic> venta) {
@@ -479,6 +578,100 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildUserBidBox(Map<String, dynamic> puja, Map<String, dynamic> mercado) {
+    final monto = (puja['monto'] as num?)?.toDouble() ?? 0.0;
+    final username = puja['usuario']?['username'] ?? 'Usuario';
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 0, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.gavel_rounded, color: Colors.orangeAccent, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Oferta de $username:', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              ),
+              Text(
+                CurrencyFormatter.format(monto),
+                style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _rejectUserBid(puja['id']),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  child: const Text('Rechazar', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => _acceptUserBid(puja['id']),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    elevation: 0,
+                  ),
+                  child: const Text('Aceptar', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _acceptUserBid(String pujaId) async {
+    try {
+      setState(() => _isLoading = true);
+      final response = await Supabase.instance.client.rpc('aceptar_puja_mercado', params: {'p_puja_id': pujaId});
+      
+      if (response != null && response['error'] != null) {
+        throw response['error'];
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Venta realizada con éxito'), backgroundColor: AppColors.success));
+        _loadInitialData();
+      }
+    } catch (e) {
+      debugPrint('Error al aceptar puja: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error));
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _rejectUserBid(String pujaId) async {
+    try {
+      await Supabase.instance.client.from('pujas').delete().eq('id', pujaId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta rechazada')));
+        _loadInitialData();
+      }
+    } catch (e) {
+      debugPrint('Error al rechazar puja: $e');
+    }
   }
 
   Future<void> _acceptLeagueOffer(String ofertaId) async {
@@ -658,31 +851,117 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         final precio = (trans['precio'] as num?)?.toDouble() ?? 0.0;
         final comprador = trans['comprador']?['username'] ?? 'Liga';
         final vendedor = trans['vendedor']?['username'] ?? 'Liga';
+        final pos = jugador['posicion'] ?? '';
+        final color = _getPosColor(pos);
+        
+        final buyerId = trans['comprador_id'];
+        final sellerId = trans['vendedor_id'];
+        final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+        
+        String prefix = '';
+        Color priceColor = Colors.yellow;
+        
+        if (sellerId == currentUserId) {
+          prefix = '+';
+          priceColor = AppColors.success;
+        } else if (buyerId == currentUserId) {
+          prefix = '-';
+          priceColor = Colors.redAccent;
+        }
         
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
+          height: 70,
           decoration: BoxDecoration(
-            color: AppColors.bgCard.withOpacity(0.5),
-            borderRadius: BorderRadius.circular(12),
+            color: AppColors.bgCard,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Row(
             children: [
-              const CircleAvatar(
-                backgroundColor: AppColors.bgCardLight,
-                child: Icon(Icons.swap_horiz_rounded, color: Colors.white54),
+              // Mini foto del jugador con fondo de color de posición
+              Container(
+                width: 60,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [color.withOpacity(0.2), Colors.transparent],
+                    begin: Alignment.bottomCenter, end: Alignment.topCenter,
+                  ),
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                ),
+                child: (jugador['foto_url'] != null && (jugador['foto_url'] as String).isNotEmpty)
+                    ? Center(
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+                          ),
+                          child: ClipOval(
+                            child: Transform.scale(
+                              scale: 1.4,
+                              child: Image.network(
+                                jugador['foto_url'],
+                                fit: BoxFit.cover,
+                                alignment: const Alignment(0, -0.3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    : Icon(Icons.person, color: Colors.white.withOpacity(0.1)),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(jugador['nombre'] ?? 'Jugador', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                    Text('$vendedor ➔ $comprador', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    Text(
+                      jugador['nombre'] ?? 'Jugador',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            vendedor, 
+                            style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6),
+                          child: Icon(Icons.arrow_forward_rounded, size: 10, color: Colors.white24),
+                        ),
+                        Flexible(
+                          child: Text(
+                            comprador, 
+                            style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              Text(CurrencyFormatter.format(precio), style: const TextStyle(fontWeight: FontWeight.w900, color: AppColors.accent)),
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Text(
+                  '$prefix${CurrencyFormatter.format(precio)}',
+                  style: TextStyle(color: priceColor, fontWeight: FontWeight.w900, fontSize: 14),
+                ),
+              ),
             ],
           ),
         );
@@ -699,7 +978,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           const SizedBox(width: 48),
           Column(
             children: [
-              const Text('LIGA FANTASY CHIPIONA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5)),
+              Text(_ligaNombre, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5)),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1328,6 +1607,7 @@ class _PremiumMarketTile extends StatefulWidget {
   final double? precioSalida;
   final DateTime? fechaFin;
   final bool isOwner;
+  final String? ownerName;
   final String? actionLabel;
   final VoidCallback? onAction;
   const _PremiumMarketTile({
@@ -1335,6 +1615,7 @@ class _PremiumMarketTile extends StatefulWidget {
     this.precioSalida, 
     this.fechaFin,
     this.isOwner = false,
+    this.ownerName,
     this.actionLabel,
     this.onAction,
   });
@@ -1383,7 +1664,8 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
   @override
   Widget build(BuildContext context) {
     final jugador = widget.jugador;
-    final equipoData = jugador['equipo_id'] as Map<String, dynamic>?;
+    final dynamic rawEquipo = jugador['equipo_id'];
+    final Map<String, dynamic>? equipoData = rawEquipo is Map<String, dynamic> ? rawEquipo : null;
     final precio = widget.precioSalida ?? (jugador['precio'] as num?)?.toDouble() ?? 0.0;
     final valor = (jugador['precio'] as num?)?.toDouble() ?? 0.0;
     final pos = jugador['posicion'] ?? '';
@@ -1391,7 +1673,7 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
     
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      height: 140,
+      height: 160,
       decoration: BoxDecoration(
         color: AppColors.bgCard,
         borderRadius: BorderRadius.circular(16),
@@ -1481,14 +1763,12 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Icon(Icons.check_circle, color: Colors.green, size: 14),
-                      const SizedBox(width: 4),
                       const Text('Alineable', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   
                   // Tiempo restante (DINÁMICO)
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
                       const Icon(Icons.timer_outlined, color: Colors.white30, size: 14),
@@ -1497,6 +1777,23 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                     ],
                   ),
 
+                  if (widget.ownerName != null) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 12),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            widget.ownerName!, 
+                            style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
                   const Spacer(),
                   
                   // Fila inferior: Valor, Precio y Botón de Fichar
@@ -1504,19 +1801,29 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Valor: ${CurrencyFormatter.format(valor as num)}', style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10)),
-                          Text(CurrencyFormatter.format(precio as num), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Valor: ${CurrencyFormatter.format(valor as num)}', style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10)),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                CurrencyFormatter.format(precio as num), 
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: widget.onAction ?? () {},
                         style: ElevatedButton.styleFrom(
                           backgroundColor: widget.actionLabel == 'Acciones' ? AppColors.primary : (widget.isOwner ? AppColors.accent : AppColors.success),
                           foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         child: Text(
@@ -1573,7 +1880,8 @@ class _CreativePlayerTile extends StatelessWidget {
     final nombre = jugador['nombre'] ?? '';
     final apellidos = jugador['apellidos'] ?? '';
     final displayName = showFullName ? '$nombre $apellidos' : nombre;
-    final equipoData = jugador['equipo_id'] as Map<String, dynamic>?;
+    final dynamic rawEquipo = jugador['equipo_id'];
+    final Map<String, dynamic>? equipoData = rawEquipo is Map<String, dynamic> ? rawEquipo : null;
     final equipoNombre = equipoData?['nombre'] ?? 'Sin equipo';
     final precio = (jugador['precio'] as num?)?.toDouble() ?? 0.0;
     final pos = jugador['posicion'] ?? '';
@@ -1581,87 +1889,83 @@ class _CreativePlayerTile extends StatelessWidget {
     
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withOpacity(0.03))),
+      height: 110,
+      decoration: BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
       child: Row(
         children: [
           Container(
-            width: 58, height: 58,
-            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withOpacity(0.3))),
+            width: 80,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [color.withOpacity(0.2), Colors.transparent],
+                begin: Alignment.bottomCenter, end: Alignment.topCenter,
+              ),
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+            ),
             child: (jugador['foto_url'] != null && (jugador['foto_url'] as String).isNotEmpty)
-                ? Padding(
-                    padding: const EdgeInsets.all(4.0), // Margen interno para que la imagen sea más pequeña que el fondo
-                    child: ClipOval(
-                      child: Transform.scale(
-                        scale: 1.4,
-                        child: Image.network(
-                          jugador['foto_url'],
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.cover,
-                          alignment: const Alignment(0, -0.3),
+                ? Center(
+                    child: Container(
+                      width: 54, height: 54,
+                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: color.withOpacity(0.3), width: 1.5)),
+                      child: ClipOval(
+                        child: Transform.scale(
+                          scale: 1.4,
+                          child: Image.network(
+                            jugador['foto_url'],
+                            fit: BoxFit.cover,
+                            alignment: const Alignment(0, -0.3),
+                          ),
                         ),
                       ),
                     ),
                   )
-                : Padding(
-                    padding: const EdgeInsets.all(4.0),
-                    child: (equipoData?['escudo_url'] != null && (equipoData!['escudo_url'] as String).isNotEmpty)
-                      ? Image.network(
-                          equipoData['escudo_url'],
-                          fit: BoxFit.contain,
-                          errorBuilder: (c, e, s) => const Center(child: Text('⚽', style: TextStyle(fontSize: 24))),
-                        )
-                      : const Center(child: Text('⚽', style: TextStyle(fontSize: 24))),
-                  ),
+                : Center(child: Icon(Icons.account_circle, size: 60, color: Colors.white.withOpacity(0.1))),
           ),
-          const SizedBox(width: 16),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16), overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 2),
-                Text(equipoNombre, style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11), overflow: TextOverflow.ellipsis),
-                if (ownerName != null)
-                   Container(
-                     margin: const EdgeInsets.only(top: 4),
-                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                     decoration: BoxDecoration(
-                       color: AppColors.primary.withOpacity(0.1), 
-                       borderRadius: BorderRadius.circular(4),
-                       border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                     ),
-                     child: Text(
-                       ownerName!.toUpperCase(), 
-                       style: const TextStyle(
-                         color: AppColors.primary, 
-                         fontSize: 9, 
-                         fontWeight: FontWeight.bold
-                       )
-                     ),
-                   ),
-                const SizedBox(height: 10),
-                _CreativePosTag(pos: pos, color: color),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: Colors.black.withOpacity(0.3), borderRadius: BorderRadius.circular(8)),
-                child: Row(
-                  children: [
-                    const Text('PTS ', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 9)),
-                    Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
-                  ],
-                ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _PosTag(pos: pos, color: color),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis)),
+                      const Text('PTS ', style: TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold)),
+                      Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      if (equipoData?['escudo_url'] != null) ...[
+                        Image.network(equipoData!['escudo_url'], width: 12, height: 12),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(child: Text(equipoNombre, style: const TextStyle(color: Colors.white54, fontSize: 10), overflow: TextOverflow.ellipsis)),
+                      if (ownerName != null) ...[
+                        const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 10),
+                        const SizedBox(width: 2),
+                        Text(ownerName!, style: const TextStyle(color: AppColors.primary, fontSize: 9, fontWeight: FontWeight.bold)),
+                      ],
+                    ],
+                  ),
+                  const Spacer(),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: Text(
+                      CurrencyFormatter.format(precio), 
+                      style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w900, fontSize: 16)
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(CurrencyFormatter.format(precio as num), style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w800, fontSize: 15)),
-            ],
+            ),
           ),
         ],
       ),

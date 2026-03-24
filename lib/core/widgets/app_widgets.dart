@@ -68,6 +68,7 @@ class AppButton extends StatelessWidget {
   final bool fullWidth;
   final Widget? icon;
   final Color? backgroundColor;
+  final Color? labelColor;
 
   const AppButton({
     super.key,
@@ -77,6 +78,7 @@ class AppButton extends StatelessWidget {
     this.fullWidth = true,
     this.icon,
     this.backgroundColor,
+    this.labelColor,
   });
 
   @override
@@ -88,6 +90,7 @@ class AppButton extends StatelessWidget {
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: backgroundColor ?? AppColors.primary,
+          foregroundColor: labelColor ?? Colors.black,
         ),
         child: isLoading
             ? const SizedBox(

@@ -29,4 +29,7 @@ FOR UPDATE USING (usuario_id = auth.uid());
 -- 4. Permitir que los usuarios borren sus propias pujas
 DROP POLICY IF EXISTS "Usuarios pueden borrar sus propias pujas" ON public.pujas;
 CREATE POLICY "Usuarios pueden borrar sus propias pujas" ON public.pujas
-FOR DELETE USING (usuario_id = auth.uid());
+FOR DELETE USING (
+    usuario_id = auth.uid() OR 
+    mercado_id IN (SELECT id FROM public.mercado WHERE vendedor_id = auth.uid())
+);

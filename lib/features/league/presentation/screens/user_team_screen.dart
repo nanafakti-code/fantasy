@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
 import '../../../../core/widgets/main_scaffold.dart';
+import '../../../../core/utils/currency_formatter.dart';
 
 class UserTeamScreen extends ConsumerStatefulWidget {
   final String userId;
@@ -24,6 +26,8 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _jugadores = [];
   double _presupuestoPropio = 0;
+  double _totalPujado = 0;
+  int _myPlayerCount = 0;
   String? _ligaId;
 
   @override
@@ -48,6 +52,55 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           .eq('liga_id', _ligaId!)
           .single();
       _presupuestoPropio = (myMembership['presupuesto'] as num?)?.toDouble() ?? 0;
+
+      // 1b. Cargar mi equipo para count
+      final myTeam = await Supabase.instance.client
+          .from('equipos_fantasy')
+          .select('id')
+          .eq('user_id', myId)
+          .eq('liga_id', _ligaId!)
+          .maybeSingle();
+
+      double totalPujado = 0;
+      int myPC = 0;
+      if (myTeam != null) {
+        final countRes = await Supabase.instance.client
+            .from('equipo_fantasy_jugadores')
+            .select('id')
+            .eq('equipo_fantasy_id', myTeam['id']);
+        myPC = countRes.length;
+
+        // 1c. Cargar pujas activas (tanto en mercado como p2p)
+        final p2pPujas = await Supabase.instance.client
+            .from('ofertas_jugadores')
+            .select('monto')
+            .eq('comprador_id', myId)
+            .eq('liga_id', _ligaId!)
+            .eq('estado', 'pendiente');
+        
+        final marketPujas = await Supabase.instance.client
+            .from('pujas')
+            .select('monto, mercado!inner(liga_id)')
+            .eq('usuario_id', myId)
+            .eq('mercado.liga_id', _ligaId!);
+
+        for (var f in p2pPujas) { totalPujado += (f['monto'] as num).toDouble(); }
+        for (var f in marketPujas) { totalPujado += (f['monto'] as num).toDouble(); }
+      }
+
+      // 1d. Cargar mis ofertas activas a ESTE rival específico para marcar los jugadores
+      final myExistingOffers = await Supabase.instance.client
+          .from('ofertas_jugadores')
+          .select('jugador_id, monto')
+          .eq('comprador_id', myId)
+          .eq('vendedor_id', widget.userId)
+          .eq('liga_id', _ligaId!)
+          .eq('estado', 'pendiente');
+      
+      final Map<String, double> offersMap = {};
+      for (var o in myExistingOffers) {
+        offersMap[o['jugador_id'].toString()] = (o['monto'] as num).toDouble();
+      }
 
       // 2. Cargar el equipo del rival
       final equipoRival = await Supabase.instance.client
@@ -76,6 +129,8 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           'foto_url': j['foto_url'],
           'equipo_nombre': j['equipos_reales']?['nombre'],
           'puntos_totales': j['puntos'] ?? 0,
+          'has_offer': offersMap.containsKey(j['id'].toString()),
+          'my_offer_amount': offersMap[j['id'].toString()],
           'ultimos_puntos': (j['estadisticas_jugadores'] as List?)
                   ?.map((s) => (s['puntos_calculados'] as num).toInt())
                   .toList()
@@ -101,6 +156,8 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
 
         setState(() {
           _jugadores = loadedPlayers;
+          _myPlayerCount = myPC;
+          _totalPujado = totalPujado;
           _isLoading = false;
         });
       }
@@ -170,15 +227,17 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
               const SizedBox(height: 20), // Reducido de 24
               Row(
                 children: [
-                  _InfoBox(label: 'Precio', value: '${(p['precio'] / 1000000).toStringAsFixed(1)}M'),
+                  _InfoBox(label: 'Precio', value: '${NumberFormat.decimalPattern('es_ES').format((p['precio'] as num).toInt())}€'),
                   const SizedBox(width: 12),
-                  _InfoBox(label: 'Cláusula', value: '${(clausula / 1000000).toStringAsFixed(1)}M', color: AppColors.accent),
+                  _InfoBox(label: 'Cláusula', value: '${NumberFormat.decimalPattern('es_ES').format(clausula.toInt())}€', color: Colors.yellow),
                 ],
               ),
               const SizedBox(height: 24), // Reducido de 32
               AppButton(
-                label: 'Hacer Oferta',
-                icon: const Icon(Icons.history_edu_rounded, color: Colors.black),
+                label: p['has_offer'] == true ? 'OFERTA REALIZADA (${NumberFormat.decimalPattern('es_ES').format(p['my_offer_amount']?.toInt() ?? 0)}€)' : 'Hacer Oferta',
+                backgroundColor: p['has_offer'] == true ? Colors.blueAccent : AppColors.primary,
+                labelColor: p['has_offer'] == true ? Colors.white : Colors.black,
+                icon: Icon(p['has_offer'] == true ? Icons.edit_note_rounded : Icons.history_edu_rounded, color: p['has_offer'] == true ? Colors.white : Colors.black),
                 onPressed: () {
                   Navigator.pop(ctx);
                   _showOfferDialog(p);
@@ -214,46 +273,241 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
     );
   }
 
+  Color _getPosColor(String? pos) {
+    if (pos == null) return Colors.grey;
+    switch (pos.toLowerCase()) {
+      case 'portero': return AppColors.goalkeeper;
+      case 'defensa': return AppColors.defender;
+      case 'centrocampista': return AppColors.midfielder;
+      case 'delantero': return AppColors.forward;
+      default: return AppColors.primary;
+    }
+  }
+
   void _showOfferDialog(Map<String, dynamic> p) {
-    final controller = TextEditingController(text: (p['precio']).toStringAsFixed(0));
-    showDialog(
+    final double marketPrice = (p['precio'] as num).toDouble();
+    final String initialValue = NumberFormat.decimalPattern('es_ES').format(marketPrice.toInt());
+    final controller = TextEditingController(text: initialValue);
+    final posColor = _getPosColor(p['pos']);
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.bgCard,
-        title: Text('Oferta por ${p['name']}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('¿Cuánto quieres ofrecer por este jugador?', style: TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                prefixText: '€ ',
-                border: OutlineInputBorder(),
-              ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent, // Background handle by Container
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final double amountValue = double.tryParse(controller.text.replaceAll('.', '')) ?? 0;
+          final bool isSquadFull = _myPlayerCount >= 26;
+          final double saldoDisponible = _presupuestoPropio - _totalPujado;
+          final bool isValid = amountValue >= marketPrice && !isSquadFull && amountValue <= saldoDisponible;
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.9,
+            decoration: const BoxDecoration(
+              color: AppColors.bgDark,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          TextButton(
-            onPressed: () async {
-              final monto = double.tryParse(controller.text) ?? 0;
-              if (monto <= 0) return;
-              Navigator.pop(ctx);
-              _submitOffer(p, monto);
-            },
-            child: const Text('ENVIAR OFERTA', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
-          ),
-        ],
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        // Header
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 24),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Puja por ${p['name']}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(width: 48),
+                          ],
+                        ),
+                        const SizedBox(height: 32),
+                        
+                        // Player Photo
+                        Container(
+                          width: 130,
+                          height: 130,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: posColor.withOpacity(0.5), width: 3),
+                            boxShadow: [
+                              BoxShadow(color: posColor.withOpacity(0.3), blurRadius: 20, spreadRadius: 3),
+                            ],
+                          ),
+                          child: ClipOval(
+                            child: (p['foto_url'] != null && p['foto_url'].toString().isNotEmpty)
+                              ? Image.network(
+                                  p['foto_url'], 
+                                  fit: BoxFit.cover, 
+                                  alignment: const Alignment(0, -0.3),
+                                )
+                              : Center(child: Text(p['name'][0], style: const TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold))),
+                          ),
+                        ),
+                        const SizedBox(height: 48),
+
+                        // Stats Card (Circle style)
+                        _buildRowStat(
+                          Icons.monetization_on_rounded, 
+                          'VALOR DE MERCADO', 
+                          '${NumberFormat.decimalPattern('es_ES').format(marketPrice.toInt())}€',
+                          Colors.yellow
+                        ),
+                        const SizedBox(height: 20),
+                        _buildRowStat(
+                          Icons.lock_rounded, 
+                          'PRECIO SOLICITADO', 
+                          '${NumberFormat.decimalPattern('es_ES').format(marketPrice.toInt())}€',
+                          AppColors.success
+                        ),
+
+                        const SizedBox(height: 48),
+
+                        // Custom Input Box
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Center(child: Text('€', style: TextStyle(color: Colors.white70, fontSize: 20, fontWeight: FontWeight.w900))),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('IMPORTE', style: TextStyle(color: Colors.white30, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                                    TextField(
+                                      controller: controller,
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900),
+                                      decoration: const InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+                                      onChanged: (val) {
+                                        if (val.isEmpty) return;
+                                        final clean = val.replaceAll('.', '');
+                                        final numVal = int.tryParse(clean) ?? 0;
+                                        final formatted = NumberFormat.decimalPattern('es_ES').format(numVal);
+                                        controller.value = TextEditingValue(
+                                          text: formatted,
+                                          selection: TextSelection.collapsed(offset: formatted.length),
+                                        );
+                                        setModalState(() {});
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close_rounded, color: Colors.white30),
+                                onPressed: () {
+                                  controller.text = '0';
+                                  setModalState(() {});
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // My Balance Footer Check
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 64,
+                      child: ElevatedButton(
+                        onPressed: isValid ? () => _submitOffer(p, amountValue) : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          disabledBackgroundColor: Colors.white.withOpacity(0.1),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          isValid ? 'Hacer puja' : (isSquadFull ? 'PLANTILLA LLENA' : 'PUJA INVÁLIDA'),
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 0.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Tu saldo: ', style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.bold)),
+                        Text('${CurrencyFormatter.format(_presupuestoPropio)}', style: const TextStyle(color: AppColors.success, fontSize: 15, fontWeight: FontWeight.w900)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('Pujado: -${NumberFormat.decimalPattern('es_ES').format(_totalPujado.toInt())}€', style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
+  Widget _buildRowStat(IconData icon, String label, String value, Color iconColor) {
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.2),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: iconColor, size: 18),
+        ),
+        const SizedBox(width: 12),
+        Text(label, style: const TextStyle(color: Colors.white30, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+        const Spacer(),
+        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17)),
+      ],
+    );
+  }
+
   Future<void> _submitOffer(Map<String, dynamic> p, double monto) async {
+    final double marketPrice = (p['precio'] as num?)?.toDouble() ?? 0.0;
+    
+    if (monto < marketPrice) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La oferta debe ser igual o mayor al valor de mercado')),
+      );
+      return;
+    }
+
     if (monto > _presupuestoPropio) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No tienes presupuesto suficiente')));
       return;
@@ -283,7 +537,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.bgCard,
         title: const Text('Confirmar Clausulazo'),
-        content: Text('¿Estás seguro de pagar ${(clausula / 1000000).toStringAsFixed(1)}M por ${p['name']}? El fichaje será inmediato.'),
+        content: Text('¿Estás seguro de pagar ${NumberFormat.decimalPattern('es_ES').format(clausula.toInt())}€ por ${p['name']}? El fichaje será inmediato.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
           TextButton(
@@ -331,7 +585,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Equipo de ${widget.username}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            Text('Presupuesto: ${(_presupuestoPropio / 1000000).toStringAsFixed(1)}M', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+            Text('Presupuesto: ${NumberFormat.decimalPattern('es_ES').format(_presupuestoPropio.toInt())}€', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
           ],
         ),
         backgroundColor: AppColors.bgDark,
@@ -421,6 +675,15 @@ class _PlayerRivalTile extends StatelessWidget {
                   child: Text('${player['puntos_totales']} pts', style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 8),
+                if (player['has_offer'] == true)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blueAccent.withOpacity(0.5))),
+                      child: const Text('OFERTA ENVIADA', style: TextStyle(color: Colors.blueAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
                 if (player['ultimos_puntos'] != null && (player['ultimos_puntos'] as List).isNotEmpty)
                   ...((player['ultimos_puntos'] as List).map((pts) => Padding(
                     padding: const EdgeInsets.only(right: 3),
@@ -443,12 +706,13 @@ class _PlayerRivalTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              'V. Merc.: ${(price / 1000000).toStringAsFixed(1)}M',
+              'V. Merc.: ${NumberFormat.decimalPattern('es_ES').format(price.toInt())}€',
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
             ),
+            const SizedBox(height: 2),
             Text(
-              'Cláusula: ${(clausula / 1000000).toStringAsFixed(1)}M',
-              style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w900, fontSize: 11),
+              'Cláusula: ${NumberFormat.decimalPattern('es_ES').format(clausula.toInt())}€',
+              style: const TextStyle(color: Colors.yellow, fontWeight: FontWeight.w900, fontSize: 11),
             ),
             _buildClauseCooldown(player['clausula_abierta_hasta']),
           ],

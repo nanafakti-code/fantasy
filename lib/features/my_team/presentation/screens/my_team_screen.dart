@@ -127,7 +127,7 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
         setState(() {
           _presupuesto = (membership['presupuesto'] as num?)?.toDouble() ?? 0;
           _puntosTotales = (membership['puntos_totales'] as num?)?.toInt() ?? 0;
-          _posicion = membership['posicion'] ?? 0;
+          _posicion = (membership['posicion'] as num?)?.toInt() ?? 0;
           _formacion = formacion;
           _titulares = tits;
           _suplentes = sups;
@@ -203,7 +203,7 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
                         child: SingleChildScrollView(
                           child: Column(
                             children: [
-                              _buildTeamStats(context),
+                              _buildFinanzasStats(),
                               const SizedBox(height: 8),
                               PitchView(
                                 players: _titulares, 
@@ -228,6 +228,8 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
                           child: Column(
                             children: [
                               const SizedBox(height: 16),
+                              _buildPuntosStats(),
+                              const SizedBox(height: 16),
                               const Text('JORNADA ACTUAL', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
                               const SizedBox(height: 16),
                               PitchView(
@@ -248,16 +250,6 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
                 ),
               ],
             ),
-          ),
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () => context.go('/market'),
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.black,
-          icon: const Icon(Icons.swap_horiz_rounded),
-          label: const Text(
-            'Gestionar',
-            style: TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
       ),
@@ -328,7 +320,43 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
     );
   }
 
-  Widget _buildTeamStats(BuildContext context) {
+  Widget _buildFinanzasStats() {
+    final double realValor = _allOwnedPlayers.fold(0.0, (sum, p) => sum + ((p['precio'] as num?)?.toDouble() ?? 0.0));
+    final int realCount = _allOwnedPlayers.length;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: _StatChip(
+              label: 'Presupuesto',
+              value: '${(_presupuesto / 1000000).toStringAsFixed(1)}M',
+              color: AppColors.accent,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _StatChip(
+              label: 'Valor equipo',
+              value: '${(realValor / 1000000).toStringAsFixed(1)}M',
+              color: Colors.yellow,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _StatChip(
+              label: 'Jugadores',
+              value: '$realCount/26',
+              color: Colors.blueGrey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPuntosStats() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -338,14 +366,6 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
               label: 'Puntos totales',
               value: '$_puntosTotales pts',
               color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StatChip(
-              label: 'Presupuesto',
-              value: '${(_presupuesto / 1000000).toStringAsFixed(1)}M',
-              color: AppColors.accent,
             ),
           ),
           const SizedBox(width: 8),
