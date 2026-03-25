@@ -523,7 +523,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                   precioSalida: monto,
                   fechaFin: null,
                   ownerName: 'Liga Fantasy',
-                  actionLabel: 'Gestionar',
+                  actionLabel: null, // Ocultar botón "Gestionar" arriba
                   onAction: () => _showLigaOfferDialog(oferta),
                 ),
                 _buildLigaActionBox(oferta),
@@ -548,7 +548,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                   precioSalida: monto,
                   fechaFin: null,
                   ownerName: comprador,
-                  actionLabel: 'Gestionar',
+                  actionLabel: null, // Ocultar botón "Gestionar" arriba
                   onAction: () => _showP2PManagementDialog(oferta),
                 ),
                 _buildP2PActionBox(oferta),
@@ -2056,8 +2056,8 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          jugador['nombre'] ?? '', 
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          '${jugador['nombre'] ?? ''} ${jugador['apellidos'] ?? ''}'.trim(), 
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
                         ),
@@ -2087,15 +2087,17 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                     ],
                   ),
                   
-                  // Tiempo restante (DINÁMICO)
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      const Icon(Icons.timer_outlined, color: Colors.white30, size: 12),
-                      const SizedBox(width: 3),
-                      Text(_timeLeft, style: const TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
+                  // Tiempo restante (DINÁMICO) - SOLO SI HAY FECHA FIN
+                  if (widget.fechaFin != null) ...[
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        const Icon(Icons.timer_outlined, color: Colors.white30, size: 12),
+                        const SizedBox(width: 3),
+                        Text(_timeLeft, style: const TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ],
 
                   if (widget.ownerName != null) ...[
                     const SizedBox(height: 2),
@@ -2140,39 +2142,42 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      SizedBox(
-                        width: 100,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            if (widget.bidCount != null)
-                               Padding(
-                                 padding: const EdgeInsets.only(bottom: 4),
-                                 child: Text(
-                                   'Pujas: ${widget.bidCount}',
-                                   style: const TextStyle(color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold),
-                                   overflow: TextOverflow.ellipsis,
-                                 ),
-                               ),
-                            ElevatedButton(
-                              onPressed: widget.onAction ?? () {},
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: widget.actionLabel == 'Acciones' ? AppColors.primary : (widget.isOwner ? AppColors.accent : AppColors.success),
-                                foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      if (widget.actionLabel != null || !widget.isOwner)
+                        SizedBox(
+                          width: 100,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              if (widget.bidCount != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    'Pujas: ${widget.bidCount}',
+                                    style: const TextStyle(color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ElevatedButton(
+                                onPressed: widget.onAction ?? () {},
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: widget.actionLabel == 'Acciones'
+                                      ? AppColors.primary
+                                      : (widget.isOwner ? AppColors.accent : AppColors.success),
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(
+                                  widget.actionLabel ?? (widget.isOwner ? 'Quitar' : 'Fichar'),
+                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              child: Text(
-                                widget.actionLabel ?? (widget.isOwner ? 'Quitar' : 'Fichar'),
-                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ],

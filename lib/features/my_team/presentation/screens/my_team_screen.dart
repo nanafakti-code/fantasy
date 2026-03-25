@@ -95,7 +95,7 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
         final j = rel['jugadores'] as Map<String, dynamic>;
         final playerData = {
           'id': j['id'],
-          'name': j['nombre'],
+          'name': '${j['nombre'] ?? ''} ${j['apellidos'] ?? ''}'.trim(),
           'initials': _getInitials(j['nombre']),
           'pos': _mapPos(j['posicion']),
           'pts': 0, 

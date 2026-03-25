@@ -135,7 +135,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
         final j = rel['jugadores'];
         loadedPlayers.add({
           'id': j['id'],
-          'name': j['nombre'],
+          'name': '${j['nombre'] ?? ''} ${j['apellidos'] ?? ''}'.trim(),
           'pos': j['posicion'],
           'precio': j['precio'],
           'clausula': rel['clausula'] ?? (j['precio'] * 1.25),
