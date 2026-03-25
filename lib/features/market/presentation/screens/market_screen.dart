@@ -9,6 +9,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/main_scaffold.dart';
 import '../../../../core/utils/currency_formatter.dart';
 import '../../../../models/jugador.dart';
+import '../../../player_detail/presentation/screens/player_detail_screen.dart';
 
 class MarketScreen extends ConsumerStatefulWidget {
   const MarketScreen({super.key});
@@ -255,10 +256,10 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
       
       final squadSize = (teamPlayersResponse as List).length;
 
-      // 7. Cargar TODOS los jugadores para la búsqueda global
+      // 7. Cargar TODOS los jugadores para la búsqueda global (desde la vista para tener puntos correctos)
       final playersResponse = await Supabase.instance.client
-          .from('jugadores')
-          .select('*, equipo_id(id, nombre, escudo_url)')
+          .from('vista_jugadores')
+          .select('*')
           .order('nombre');
 
       if (mounted) {
@@ -426,21 +427,31 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                 final countData = item['pujas'] as List?;
                 final bidCount = (countData != null && countData.isNotEmpty) ? countData[0]['count'] as int : 0;
                 
-                return _PremiumMarketTile(
-                  jugador: jugadorData,
-                  precioSalida: (item['precio_minimo'] as num?)?.toDouble(),
-                  fechaFin: fechaFin,
-                  isOwner: item['vendedor_id'] == Supabase.instance.client.auth.currentUser?.id,
-                  ownerName: ownerName,
-                  actionLabel: yaPujado ? 'Acciones' : null,
-                  bidCount: bidCount,
-                  onAction: () {
-                    if (yaPujado) {
-                      _showBidActionsMenu(item, puja);
-                    } else {
-                      _showBidModal(item);
-                    }
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      ctx,
+                      MaterialPageRoute(
+                        builder: (_) => PlayerDetailScreen(jugadorId: jugadorData['id']?.toString() ?? ''),
+                      ),
+                    );
                   },
+                  child: _PremiumMarketTile(
+                    jugador: jugadorData,
+                    precioSalida: (item['precio_minimo'] as num?)?.toDouble(),
+                    fechaFin: fechaFin,
+                    isOwner: item['vendedor_id'] == Supabase.instance.client.auth.currentUser?.id,
+                    ownerName: ownerName,
+                    actionLabel: yaPujado ? 'Acciones' : null,
+                    bidCount: bidCount,
+                    onAction: () {
+                      if (yaPujado) {
+                        _showBidActionsMenu(item, puja);
+                      } else {
+                        _showBidModal(item);
+                      }
+                    },
+                  ),
                 );
               },
             ),
@@ -1468,10 +1479,20 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         final name = j['nombre']?.toString() ?? '';
         final isDuplicate = (nameCounts[name] ?? 0) > 1;
         
-        return _CreativePlayerTile(
-          jugador: j, 
-          showFullName: isDuplicate,
-          ownerName: _playerOwners[j['id']?.toString()],
+        return InkWell(
+          onTap: () {
+            Navigator.push(
+              ctx,
+              MaterialPageRoute(
+                builder: (_) => PlayerDetailScreen(jugadorId: j['id']?.toString() ?? ''),
+              ),
+            );
+          },
+          child: _CreativePlayerTile(
+            jugador: j, 
+            showFullName: isDuplicate,
+            ownerName: _playerOwners[j['id']?.toString()],
+          ),
         );
       },
     );
@@ -2322,8 +2343,14 @@ class _CreativePlayerTile extends StatelessWidget {
                       _PosTag(pos: pos, color: color),
                       const SizedBox(width: 8),
                       Expanded(child: Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14), overflow: TextOverflow.ellipsis)),
-                      const Text('PTS ', style: TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold)),
-                      Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text('PTS', style: TextStyle(color: Colors.white30, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                          Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, height: 1.1)),
+                        ],
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),

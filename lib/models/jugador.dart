@@ -85,7 +85,7 @@ class Jugador {
       equipoNombre = equipoRaw['nombre']?.toString();
     } else {
       equipoId = equipoRaw?.toString();
-      equipoNombre = (json['equipos_reales'] as Map?)?['nombre']?.toString();
+      equipoNombre = json['equipo_nombre']?.toString() ?? (json['equipos_reales'] as Map?)?['nombre']?.toString();
     }
 
     return Jugador(

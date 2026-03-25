@@ -47,10 +47,10 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
       final user = supabase.auth.currentUser;
       final ligaId = ref.read(selectedLeagueIdProvider);
 
-      // 1. Cargar datos del jugador con su equipo real
+      // 1. Cargar datos del jugador con su equipo real (desde la vista para tener puntos calculados)
       final playerResponse = await supabase
-          .from('jugadores')
-          .select('*, equipos_reales(*)')
+          .from('vista_jugadores')
+          .select('*')
           .eq('id', widget.jugadorId)
           .maybeSingle();
 
@@ -423,12 +423,12 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                   decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
                   child: const Row(
                     children: [
-                      _TableHeader('Jornada', flex: 2),
-                      _TableHeader('⚽', flex: 1),
-                      _TableHeader('🟨', flex: 1),
-                      _TableHeader('🟥', flex: 1),
-                      _TableHeader('Titular', flex: 2),
-                      _TableHeader('Pts', flex: 1, alignRight: true),
+                      _TableHeader(text: 'Jornada', flex: 2),
+                      _TableHeader(icon: Icon(Icons.sports_soccer, color: AppColors.success, size: 14), flex: 1, alignCenter: true),
+                      _TableHeader(icon: Icon(Icons.rectangle, color: AppColors.warning, size: 14), flex: 1, alignCenter: true),
+                      _TableHeader(icon: Icon(Icons.rectangle, color: AppColors.error, size: 14), flex: 1, alignCenter: true),
+                      _TableHeader(text: 'Titular', flex: 2, alignCenter: true),
+                      _TableHeader(text: 'Pts', flex: 1, alignRight: true),
                     ],
                   ),
                 ),
@@ -1073,20 +1073,25 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
 }
 
 class _TableHeader extends StatelessWidget {
-  final String text;
+  final Widget? icon;
+  final String? text;
   final int flex;
   final bool alignRight;
-  const _TableHeader(this.text, {required this.flex, this.alignRight = false});
+  final bool alignCenter;
+
+  const _TableHeader({this.icon, this.text, required this.flex, this.alignRight = false, this.alignCenter = false});
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
       flex: flex,
-      child: Text(
-        text,
-        style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
-        textAlign: alignRight ? TextAlign.right : TextAlign.left,
-      ),
+      child: text != null 
+        ? Text(
+            text!,
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
+            textAlign: alignCenter ? TextAlign.center : (alignRight ? TextAlign.right : TextAlign.left),
+          )
+        : Center(child: icon!),
     );
   }
 }
