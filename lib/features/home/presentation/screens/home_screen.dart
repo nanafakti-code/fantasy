@@ -45,7 +45,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       
       final profileResponse = await Supabase.instance.client
           .from('usuarios')
-          .select('avatar_url, username')
+          .select('avatar_url, username, rol')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -231,29 +231,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildEmptyState(BuildContext context) {
+    final bool isAdmin = _userProfile?['rol'] == 'admin';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.sports_soccer_outlined, size: 80, color: AppColors.textMuted.withOpacity(0.5)),
+          Icon(
+            isAdmin ? Icons.admin_panel_settings_outlined : Icons.sports_soccer_outlined, 
+            size: 80, 
+            color: isAdmin ? AppColors.primary.withOpacity(0.5) : AppColors.textMuted.withOpacity(0.5)
+          ),
           const SizedBox(height: 24),
           Text(
-            '¡Bienvenido al césped!',
+            isAdmin ? 'MODO ADMINISTRADOR' : '¡Bienvenido al césped!',
             style: Theme.of(context).textTheme.headlineMedium,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           Text(
-            'Actualmente no estás participando en ninguna liga. Crea una liga nueva y sé el administrador, o únete a una existente con un código de invitación.',
+            isAdmin 
+              ? 'Has accedido como Superadmin. Desde aquí puedes gestionar todas las ligas del sistema y los puntos de los jugadores.'
+              : 'Actualmente no estás participando en ninguna liga. Crea una liga nueva y sé el administrador, o únete a una existente con un código de invitación.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
-          AppButton(
-            label: 'Crear o unirme a una liga',
-            onPressed: () => _showLeagueOptions(context),
-          ),
+          if (isAdmin)
+             AppButton(
+               label: 'IR AL PANEL DE CONTROL',
+               onPressed: () => context.push('/admin'),
+             )
+          else
+            AppButton(
+              label: 'Crear o unirme a una liga',
+              onPressed: () => _showLeagueOptions(context),
+            ),
         ],
       ),
     );

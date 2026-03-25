@@ -100,8 +100,8 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
 
       for (var rel in jugadoresRel) {
         final j = rel['jugadores'] as Map<String, dynamic>;
-        final String primerNombre = j['nombre'] ?? '';
-        final String apellidos = j['apellidos'] ?? '';
+        final String primerNombre = (j['nombre'] ?? '').toString();
+        final String apellidos = (j['apellidos'] ?? '').toString();
         // Si hay duplicados en esta pantalla, mostramos apellido
         final String displayName = (nameCounts[primerNombre] ?? 0) > 1 
             ? '$primerNombre $apellidos'.trim() 
@@ -851,6 +851,7 @@ class _BenchSlot extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Container(
+            width: 65, // Fixed width to prevent overflow
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
             decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(4)),
             child: Text(
@@ -858,6 +859,7 @@ class _BenchSlot extends StatelessWidget {
               style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
+              textAlign: TextAlign.center,
             ),
           ),
           if (showPoints) ...[

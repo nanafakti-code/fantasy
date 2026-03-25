@@ -15,6 +15,9 @@ import '../../features/player_detail/presentation/screens/player_detail_screen.d
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/profile/presentation/screens/account_settings_screen.dart';
 import '../../features/activity/presentation/screens/activity_screen.dart';
+import '../../features/admin/presentation/screens/admin_dashboard_screen.dart';
+import '../../features/admin/presentation/screens/admin_leagues_screen.dart';
+import '../../features/admin/presentation/screens/admin_points_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -113,6 +116,28 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: 'settings',
             name: 'account-settings',
             builder: (context, state) => const AccountSettingsScreen(),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/admin',
+        name: 'admin-dashboard',
+        builder: (context, state) => const AdminDashboardScreen(),
+        routes: [
+          GoRoute(
+            path: 'leagues',
+            name: 'admin-leagues',
+            builder: (context, state) => const AdminLeaguesScreen(),
+          ),
+          GoRoute(
+            path: 'points',
+            name: 'admin-points',
+            builder: (context, state) => const AdminPointsScreen(),
+          ),
+          GoRoute(
+            path: 'matches',
+            name: 'admin-matches',
+            builder: (context, state) => const AdminPointsScreen(),
           ),
         ],
       ),

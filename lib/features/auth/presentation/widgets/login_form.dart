@@ -100,7 +100,21 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      if (mounted) context.go('/home');
+
+      final user = Supabase.instance.client.auth.currentUser;
+      final profile = await Supabase.instance.client
+          .from('usuarios')
+          .select('rol')
+          .eq('id', user?.id ?? '')
+          .maybeSingle();
+
+      if (mounted) {
+        if (profile?['rol'] == 'admin') {
+          context.go('/admin');
+        } else {
+          context.go('/home');
+        }
+      }
     } on AuthException catch (e) {
       if (mounted) {
         setState(() {

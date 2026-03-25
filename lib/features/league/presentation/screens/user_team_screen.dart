@@ -262,7 +262,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
               ),
               const SizedBox(height: 24), // Reducido de 32
               AppButton(
-                label: p['has_offer'] == true ? 'OFERTA REALIZADA (${NumberFormat.decimalPattern('es_ES').format(p['my_offer_amount']?.toInt() ?? 0)}€)' : 'Hacer Oferta',
+                label: p['has_offer'] == true ? 'EDITAR OFERTA (${NumberFormat.decimalPattern('es_ES').format(p['my_offer_amount']?.toInt() ?? 0)}€)' : 'Hacer Oferta',
                 backgroundColor: p['has_offer'] == true ? Colors.blueAccent : AppColors.primary,
                 labelColor: p['has_offer'] == true ? Colors.white : Colors.black,
                 icon: Icon(p['has_offer'] == true ? Icons.edit_note_rounded : Icons.history_edu_rounded, color: p['has_offer'] == true ? Colors.white : Colors.black),
@@ -360,30 +360,33 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
                             const SizedBox(width: 48),
                           ],
                         ),
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 16),
                         
                         // Player Photo
                         Container(
-                          width: 130,
-                          height: 130,
+                          width: 100,
+                          height: 100,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(color: posColor.withOpacity(0.5), width: 3),
                             boxShadow: [
-                              BoxShadow(color: posColor.withOpacity(0.3), blurRadius: 20, spreadRadius: 3),
+                              BoxShadow(color: posColor.withOpacity(0.3), blurRadius: 15, spreadRadius: 2),
                             ],
                           ),
                           child: ClipOval(
                             child: (p['foto_url'] != null && p['foto_url'].toString().isNotEmpty)
-                              ? Image.network(
-                                  p['foto_url'], 
-                                  fit: BoxFit.cover, 
-                                  alignment: const Alignment(0, -0.3),
+                              ? Transform.scale(
+                                  scale: 1.4,
+                                  child: Image.network(
+                                    p['foto_url'], 
+                                    fit: BoxFit.cover, 
+                                    alignment: const Alignment(0, -0.3),
+                                  ),
                                 )
                               : Center(child: Text(p['name'][0], style: const TextStyle(color: Colors.white, fontSize: 42, fontWeight: FontWeight.bold))),
                           ),
                         ),
-                        const SizedBox(height: 48),
+                        const SizedBox(height: 16),
 
                         // Stats Card (Circle style)
                         _buildRowStat(
@@ -400,37 +403,37 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
                           AppColors.success
                         ),
 
-                        const SizedBox(height: 48),
+                        const SizedBox(height: 16),
 
                         // Custom Input Box
                         Container(
-                          padding: const EdgeInsets.all(20),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.white12),
                           ),
                           child: Row(
                             children: [
                               Container(
-                                width: 44,
-                                height: 44,
+                                width: 36,
+                                height: 36,
                                 decoration: BoxDecoration(
                                   color: Colors.white.withOpacity(0.1),
                                   shape: BoxShape.circle,
                                 ),
-                                child: const Center(child: Text('€', style: TextStyle(color: Colors.white70, fontSize: 20, fontWeight: FontWeight.w900))),
+                                child: const Center(child: Text('€', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w900))),
                               ),
-                              const SizedBox(width: 16),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('IMPORTE', style: TextStyle(color: Colors.white30, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                                    const Text('IMPORTE', style: TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1)),
                                     TextField(
                                       controller: controller,
                                       keyboardType: TextInputType.number,
-                                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900),
+                                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
                                       decoration: const InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
                                       onChanged: (val) {
                                         if (val.isEmpty) return;
@@ -448,7 +451,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.close_rounded, color: Colors.white30),
+                                icon: const Icon(Icons.close_rounded, color: Colors.white30, size: 20),
                                 onPressed: () {
                                   controller.text = '0';
                                   setModalState(() {});
@@ -469,7 +472,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
                   children: [
                     SizedBox(
                       width: double.infinity,
-                      height: 64,
+                      height: 52,
                       child: ElevatedButton(
                         onPressed: isValid ? () => _submitOffer(p, amountValue) : null,
                         style: ElevatedButton.styleFrom(
@@ -481,21 +484,19 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
                         ),
                         child: Text(
                           isValid ? 'Hacer puja' : (isSquadFull ? 'PLANTILLA LLENA' : 'PUJA INVÁLIDA'),
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 0.5),
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 0.5),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text('Tu saldo: ', style: TextStyle(color: Colors.white70, fontSize: 15, fontWeight: FontWeight.bold)),
-                        Text('${CurrencyFormatter.format(_presupuestoPropio)}', style: const TextStyle(color: AppColors.success, fontSize: 15, fontWeight: FontWeight.w900)),
+                        const Text('Tu saldo: ', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+                        Text('${CurrencyFormatter.format(_presupuestoPropio)}', style: const TextStyle(color: AppColors.success, fontSize: 14, fontWeight: FontWeight.w900)),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text('Pujado: -${NumberFormat.decimalPattern('es_ES').format(_totalPujado.toInt())}€', style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ],

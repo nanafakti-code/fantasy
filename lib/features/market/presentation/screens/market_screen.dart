@@ -27,6 +27,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   
   List<Map<String, dynamic>> _allPlayers = [];
   List<Map<String, dynamic>> _mercadoPlayers = [];
+  Set<String> _duplicateNames = {};
   List<Map<String, dynamic>> _misPujas = [];
   List<Map<String, dynamic>> _misOfertasP2P = [];
   List<Map<String, dynamic>> _ofertasP2PRecibidas = [];
@@ -224,13 +225,22 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           }
         }
 
-      // 7. Cargar TODOS los jugadores para la búsqueda global
-      final playersResponse = await Supabase.instance.client
-          .from('jugadores')
-          .select('*, equipo_id(id, nombre, escudo_url)')
-          .order('nombre');
+      // 8. Calcular nombres duplicados en pantalla
+      final List<String> allVisibleNames = [
+        ...marketList.map((p) => (p['jugador']?['nombre'] ?? '').toString()),
+        ...misPujas.map((p) => (p['mercado']?['jugador']?['nombre'] ?? '').toString()),
+        ...misOfertasP2P.map((p) => (p['jugador']?['nombre'] ?? '').toString()),
+        ...ofertasP2PRecibidas.map((p) => (p['jugador']?['nombre'] ?? '').toString()),
+        ...ofertasLigaRecibidas.map((p) => (p['mercado']?['jugador']?['nombre'] ?? '').toString()),
+        ...historyResponse.map((p) => (p['jugador']?['nombre'] ?? '').toString()),
+      ];
+      
+      final Map<String, int> counts = {};
+      for (var n in allVisibleNames) { 
+        if (n.isNotEmpty) counts[n] = (counts[n] ?? 0) + 1; 
+      }
+      final newDuplicates = counts.entries.where((e) => e.value > 1).map((e) => e.key).toSet();
 
-      // 8. Cargar número de jugadores en plantilla
       final efResponse = await Supabase.instance.client
           .from('equipos_fantasy')
           .select('id')
@@ -245,8 +255,15 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
       
       final squadSize = (teamPlayersResponse as List).length;
 
+      // 7. Cargar TODOS los jugadores para la búsqueda global
+      final playersResponse = await Supabase.instance.client
+          .from('jugadores')
+          .select('*, equipo_id(id, nombre, escudo_url)')
+          .order('nombre');
+
       if (mounted) {
         setState(() {
+          _duplicateNames = newDuplicates;
           _presupuesto = (membership['presupuesto'] as num?)?.toDouble() ?? 0;
           _ligaNombre = ligaNombre;
           _totalPujado = totalBids;
@@ -523,7 +540,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                   precioSalida: monto,
                   fechaFin: null,
                   ownerName: 'Liga Fantasy',
-                  actionLabel: null, // Ocultar botón "Gestionar" arriba
+                  isOwner: true, // ES NUESTRO JUGADOR
+                  actionLabel: null, 
                   onAction: () => _showLigaOfferDialog(oferta),
                 ),
                 _buildLigaActionBox(oferta),
@@ -548,7 +566,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
                   precioSalida: monto,
                   fechaFin: null,
                   ownerName: comprador,
-                  actionLabel: null, // Ocultar botón "Gestionar" arriba
+                  isOwner: true, // ES NUESTRO JUGADOR
+                  actionLabel: null, 
                   onAction: () => _showP2PManagementDialog(oferta),
                 ),
                 _buildP2PActionBox(oferta),
@@ -717,8 +736,12 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
 
   Future<void> _rejectP2POffer(String ofertaId) async {
     try {
-      setState(() => _isLoading = true);
-      // Elimina la oferta en lugar de solo cambiar estado, permite que se envíe una nueva oferta al mismo jugador
+      // Feedback instantáneo: quitar de la lista local antes de llamar al servidor
+      setState(() {
+        _ofertasP2PRecibidas = _ofertasP2PRecibidas.where((o) => o['id'].toString() != ofertaId.toString()).toList();
+      });
+
+      // Elimina la oferta en lugar de solo cambiar estado
       await Supabase.instance.client
           .from('ofertas_jugadores')
           .delete()
@@ -1607,7 +1630,11 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
 
   Future<void> _rechazarOfertaLiga(String ofertaId) async {
     try {
-      setState(() => _isLoading = true);
+      // Feedback instantáneo
+      setState(() {
+        _ofertasLigaRecibidas = _ofertasLigaRecibidas.where((o) => o['id'].toString() != ofertaId.toString()).toList();
+      });
+
       await Supabase.instance.client
           .from('ofertas_mercado')
           .update({'estado': 'rechazada'})
@@ -2057,7 +2084,7 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          '${jugador['nombre'] ?? ''} ${jugador['apellidos'] ?? ''}'.trim(), 
+                          _getDisplayName(jugador), 
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
@@ -2188,6 +2215,17 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
         ],
       ),
     );
+  }
+
+  String _getDisplayName(Map<String, dynamic> j) {
+    final String nombre = (j['nombre'] ?? '').toString();
+    final String apellidos = (j['apellidos'] ?? '').toString();
+    // Acceder al estado del padre para ver duplicados
+    final state = context.findAncestorStateOfType<_MarketScreenState>();
+    if (state != null && state._duplicateNames.contains(nombre)) {
+      return '$nombre $apellidos'.trim();
+    }
+    return nombre;
   }
 
   Color _getPosColor(String pos) {

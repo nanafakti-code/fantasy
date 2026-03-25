@@ -278,6 +278,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ],
               ),
             ),
+            if (_userData?['rol'] == 'admin') ...[
+              const SizedBox(height: 16),
+              AppCard(
+                child: ListTile(
+                  leading: const Icon(Icons.admin_panel_settings_rounded, color: AppColors.primary),
+                  title: const Text('Panel de Administración', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.primary),
+                  onTap: () => context.push('/admin'),
+                ),
+              ),
+            ],
+            const Divider(color: Colors.transparent, height: 16),
             const Spacer(),
             OutlinedButton(
               onPressed: _signOut,
