@@ -64,11 +64,14 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
 
   Future<void> _saveStat(String jugadorId, Map<String, dynamic> stats) async {
     try {
-      await Supabase.instance.client.from('estadisticas_jugadores').upsert({
-        'jugador_id': jugadorId,
-        'partido_id': _selectedMatchId,
-        ...stats,
-      });
+      await Supabase.instance.client.from('estadisticas_jugadores').upsert(
+        {
+          'jugador_id': jugadorId,
+          'partido_id': _selectedMatchId,
+          ...stats,
+        },
+        onConflict: 'jugador_id,partido_id',
+      );
       _loadPlayers(_selectedMatchId!);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -78,9 +81,11 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
   void _showStatsModal(dynamic p) {
     final stat = (p['stats'] as List).isNotEmpty ? p['stats'][0] : null;
     int goles = stat?['goles'] ?? 0;
-    int asis = stat?['asistencias'] ?? 0;
-    int amarillas = stat?['tarjetas_amarillas'] ?? 0;
     bool titular = stat?['titular'] ?? false;
+    bool noJugo = stat?['minutos_jugados'] == 0 && stat != null;
+    bool amarilla = (stat?['tarjetas_amarillas'] ?? 0) > 0;
+    bool dobleAmarilla = (stat?['tarjetas_amarillas'] ?? 0) >= 2;
+    bool tarjetaRoja = (stat?['tarjetas_rojas'] ?? 0) > 0;
 
     showModalBottomSheet(
       context: context,
@@ -90,35 +95,89 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setMState) => Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('ESTADÍSTICAS: ${p['nombre']} ${p['apellidos'] ?? ''}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              CheckboxListTile(
-                title: const Text('¿Fue Titular?', style: TextStyle(color: Colors.white)),
-                value: titular,
-                onChanged: (val) => setMState(() => titular = val!),
-              ),
-              _buildCounter('Goles', goles, (v) => setMState(() => goles = v)),
-              _buildCounter('Asistencias', asis, (v) => setMState(() => asis = v)),
-              _buildCounter('Amarillas', amarillas, (v) => setMState(() => amarillas = v)),
-              const SizedBox(height: 20),
-              AppButton(
-                label: 'GUARDAR',
-                onPressed: () {
-                  _saveStat(p['id'], {
-                    'titular': titular,
-                    'goles': goles,
-                    'asistencias': asis,
-                    'tarjetas_amarillas': amarillas,
-                    'minutos_jugados': titular ? 90 : 0,
-                  });
-                  Navigator.pop(ctx);
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('ESTADÍSTICAS: ${p['nombre']} ${p['apellidos'] ?? ''}', 
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 20),
+                
+                // CHECKBOX: No jugó
+                CheckboxListTile(
+                  title: const Text('¿No jugó?', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Marca si el jugador no participó en el partido', 
+                    style: TextStyle(color: Colors.white30, fontSize: 12)),
+                  value: noJugo,
+                  onChanged: (val) => setMState(() => noJugo = val!),
+                ),
+                const SizedBox(height: 12),
+                
+                // Si NO marcó "No jugó", mostrar las opciones
+                if (!noJugo) ...[
+                  CheckboxListTile(
+                    title: const Text('¿Fue Titular?', style: TextStyle(color: Colors.white)),
+                    subtitle: const Text('Titular suma más puntos que suplente', 
+                      style: TextStyle(color: Colors.white30, fontSize: 12)),
+                    value: titular,
+                    onChanged: (val) => setMState(() => titular = val!),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Goles (contador)
+                  _buildCounter('Goles', goles, (v) => setMState(() => goles = v)),
+                  const SizedBox(height: 16),
+                  
+                  // Tarjetas
+                  const Divider(color: Colors.white10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: const Text('Tarjetas', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 14)),
+                  ),
+                  
+                  CheckboxListTile(
+                    title: const Text('Tarjeta Amarilla', style: TextStyle(color: Colors.white)),
+                    value: amarilla && !dobleAmarilla,
+                    onChanged: (val) => setMState(() {
+                      amarilla = val!;
+                      if (!val) dobleAmarilla = false;
+                    }),
+                  ),
+                  
+                  CheckboxListTile(
+                    title: const Text('Doble Amarilla (Expulsión)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    value: dobleAmarilla,
+                    onChanged: (val) => setMState(() {
+                      dobleAmarilla = val!;
+                      if (val) amarilla = true;
+                    }),
+                  ),
+                  
+                  CheckboxListTile(
+                    title: const Text('Tarjeta Roja Directa', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    value: tarjetaRoja,
+                    onChanged: (val) => setMState(() => tarjetaRoja = val!),
+                  ),
+                ],
+                
+                const SizedBox(height: 24),
+                AppButton(
+                  label: 'GUARDAR',
+                  onPressed: () {
+                    _saveStat(p['id'], {
+                      'titular': !noJugo && titular,
+                      'goles': noJugo ? 0 : goles,
+                      'asistencias': 0, // Eliminado
+                      'tarjetas_amarillas': noJugo ? 0 : (dobleAmarilla ? 2 : (amarilla ? 1 : 0)),
+                      'tarjetas_rojas': noJugo ? 0 : (tarjetaRoja ? 1 : 0),
+                      'minutos_jugados': noJugo ? 0 : (titular ? 90 : 45),
+                    });
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
