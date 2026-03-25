@@ -130,12 +130,26 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           .select('es_titular, orden_suplente, jugador_id, clausula, clausula_abierta_hasta, fecha_fichaje, jugadores(*, equipos_reales(nombre, escudo_url), estadisticas_jugadores(puntos_calculados, created_at))')
           .eq('equipo_fantasy_id', equipoRival['id']);
 
+      // 1. Contar ocurrencias de nombres para detectar duplicados en esta pantalla
+      final nameCounts = <String, int>{};
+      for (var rel in jugadoresRel) {
+        final nombre = rel['jugadores']?['nombre'] ?? '';
+        nameCounts[nombre] = (nameCounts[nombre] ?? 0) + 1;
+      }
+
       final List<Map<String, dynamic>> loadedPlayers = [];
       for (var rel in jugadoresRel) {
         final j = rel['jugadores'];
+        final String primerNombre = j['nombre'] ?? '';
+        final String apellidos = j['apellidos'] ?? '';
+        // Si hay duplicados en esta pantalla, mostramos apellido
+        final String displayName = (nameCounts[primerNombre] ?? 0) > 1 
+            ? '$primerNombre $apellidos'.trim() 
+            : primerNombre;
+
         loadedPlayers.add({
           'id': j['id'],
-          'name': '${j['nombre'] ?? ''} ${j['apellidos'] ?? ''}'.trim(),
+          'name': displayName,
           'pos': j['posicion'],
           'precio': j['precio'],
           'clausula': rel['clausula'] ?? (j['precio'] * 1.25),

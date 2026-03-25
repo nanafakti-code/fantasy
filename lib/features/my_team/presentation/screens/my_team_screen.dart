@@ -91,12 +91,26 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
       final List<Map<String, dynamic>> tits = [];
       final List<Map<String, dynamic>> sups = [];
 
+      // 1. Contar ocurrencias de nombres para detectar duplicados en esta pantalla
+      final nameCounts = <String, int>{};
+      for (var rel in jugadoresRel) {
+        final nombre = rel['jugadores']?['nombre'] ?? '';
+        nameCounts[nombre] = (nameCounts[nombre] ?? 0) + 1;
+      }
+
       for (var rel in jugadoresRel) {
         final j = rel['jugadores'] as Map<String, dynamic>;
+        final String primerNombre = j['nombre'] ?? '';
+        final String apellidos = j['apellidos'] ?? '';
+        // Si hay duplicados en esta pantalla, mostramos apellido
+        final String displayName = (nameCounts[primerNombre] ?? 0) > 1 
+            ? '$primerNombre $apellidos'.trim() 
+            : primerNombre;
+
         final playerData = {
           'id': j['id'],
-          'name': '${j['nombre'] ?? ''} ${j['apellidos'] ?? ''}'.trim(),
-          'initials': _getInitials(j['nombre']),
+          'name': displayName,
+          'initials': _getInitials(primerNombre),
           'pos': _mapPos(j['posicion']),
           'pts': 0, 
           'es_titular': rel['es_titular'],
