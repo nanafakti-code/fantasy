@@ -14,6 +14,7 @@ import '../../features/league/presentation/screens/user_team_screen.dart';
 import '../../features/player_detail/presentation/screens/player_detail_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/profile/presentation/screens/account_settings_screen.dart';
+import '../../features/activity/presentation/screens/activity_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -50,6 +51,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/market',
             name: 'market',
             builder: (context, state) => const MarketScreen(),
+          ),
+          GoRoute(
+            path: '/activity',
+            name: 'activity',
+            builder: (context, state) => const ActivityScreen(),
           ),
           GoRoute(
             path: '/league',

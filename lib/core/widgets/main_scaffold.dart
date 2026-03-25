@@ -18,6 +18,7 @@ class MainScaffold extends ConsumerWidget {
     (icon: Icons.home_rounded, label: 'Inicio', route: '/home'),
     (icon: Icons.sports_soccer_rounded, label: 'Mi Equipo', route: '/my-team'),
     (icon: Icons.store_rounded, label: 'Mercado', route: '/market'),
+    (icon: Icons.notifications_active_rounded, label: 'Actividad', route: '/activity'),
     (icon: Icons.emoji_events_rounded, label: 'Liga', route: '/league'),
   ];
 

@@ -252,7 +252,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           _totalPujado = totalBids;
           _playerCount = squadSize;
           _allTeams = List<Map<String, dynamic>>.from(teamsResponse);
-          _mercadoPlayers = mercadoPlayers;
+          _mercadoPlayers = mercadoPlayers.where((m) => !ownersMap.containsKey(m['jugador_id']?.toString())).toList();
           _misVentas = misVentas;
           _misPujas = misPujas;
           _misOfertasP2P = misOfertasP2P;
@@ -260,7 +260,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           _ofertasLigaRecibidas = ofertasLigaRecibidas.where((o) => !misVentas.any((v) => v['id'] == o['mercado_id'])).toList();
           _pujasRecibidas = pujasRecibidas;
           _ofertasMercado = List<Map<String, dynamic>>.from(offersResponse);
-          _historial = List<Map<String, dynamic>>.from(historyResponse as List);
+          _historial = List<Map<String, dynamic>>.from(historyResponse as List).where((t) => t['comprador_id'] == user.id || t['vendedor_id'] == user.id).toList();
           _playerOwners = ownersMap;
           _allPlayers = List<Map<String, dynamic>>.from(playersResponse);
           _isLoading = false;
