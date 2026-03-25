@@ -141,10 +141,30 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
       }
 
       final List<Map<String, dynamic>> loadedPlayers = [];
+      
+      // --- SINCRONIZACIÓN DE PUNTOS ---
+      // Obtenemos los puntos reales de la vista para los jugadores de este equipo
+      final List<String> playerIds = jugadoresRel.map((r) => r['jugador_id'].toString()).toList();
+      Map<String, int> pointsMap = {};
+      
+      if (playerIds.isNotEmpty) {
+        final pointsResponse = await Supabase.instance.client
+            .from('vista_jugadores')
+            .select('id, puntos_totales')
+            .inFilter('id', playerIds);
+        
+        pointsMap = {
+          for (var p in pointsResponse) p['id'].toString(): (p['puntos_totales'] as num?)?.toInt() ?? 0
+        };
+      }
+      // --- FIN SINCRONIZACIÓN ---
+
       for (var rel in jugadoresRel) {
         final j = rel['jugadores'];
         final String primerNombre = j['nombre'] ?? '';
         final String apellidos = j['apellidos'] ?? '';
+        final String idStr = j['id'].toString();
+        
         // Si hay duplicados en esta pantalla, mostramos apellido
         final String displayName = (nameCounts[primerNombre] ?? 0) > 1 
             ? '$primerNombre $apellidos'.trim() 
@@ -161,10 +181,11 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           'es_titular': rel['es_titular'],
           'foto_url': j['foto_url'],
           'equipo_nombre': j['equipos_reales']?['nombre'],
-          'puntos_totales': j['puntos'] ?? 0,
-          'has_offer': offersMap.containsKey(j['id'].toString()),
-          'my_offer_amount': offersMap[j['id'].toString()]?['monto'],
-          'my_offer_id': offersMap[j['id'].toString()]?['id'],
+          'equipo_escudo': j['equipos_reales']?['escudo_url'],
+          'puntos_totales': pointsMap[idStr] ?? (j['puntos'] ?? 0),
+          'has_offer': offersMap.containsKey(idStr),
+          'my_offer_amount': offersMap[idStr]?['monto'],
+          'my_offer_id': offersMap[idStr]?['id'],
           'ultimos_puntos': (j['estadisticas_jugadores'] as List?)
                   ?.map((s) => (s['puntos_calculados'] as num).toInt())
                   .toList()
@@ -771,19 +792,6 @@ class _PlayerRivalTile extends StatelessWidget {
                     decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blueAccent.withOpacity(0.5))),
                     child: const Text('OFERTA ENVIADA', style: TextStyle(color: Colors.blueAccent, fontSize: 8, fontWeight: FontWeight.bold)),
                   ),
-                if (player['ultimos_puntos'] != null && (player['ultimos_puntos'] as List).isNotEmpty)
-                  ...((player['ultimos_puntos'] as List).map((pts) => Padding(
-                    padding: const EdgeInsets.only(right: 3),
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        color: pts >= 5 ? Colors.green : (pts > 0 ? Colors.orange : Colors.grey.withOpacity(0.3)),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(child: Text('$pts', style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold))),
-                    ),
-                  )))
               ],
             ),
           ],

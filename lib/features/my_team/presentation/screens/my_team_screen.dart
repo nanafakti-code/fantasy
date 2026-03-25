@@ -91,6 +91,23 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
       final List<Map<String, dynamic>> tits = [];
       final List<Map<String, dynamic>> sups = [];
 
+      // --- SINCRONIZACIÓN DE PUNTOS ---
+      // Obtenemos los puntos reales de la vista para los jugadores de mi equipo
+      final List<String> playerIds = jugadoresRel.map((r) => r['jugador_id'].toString()).toList();
+      Map<String, int> pointsMap = {};
+      
+      if (playerIds.isNotEmpty) {
+        final pointsResponse = await Supabase.instance.client
+            .from('vista_jugadores')
+            .select('id, puntos_totales')
+            .inFilter('id', playerIds);
+        
+        pointsMap = {
+          for (var p in pointsResponse) p['id'].toString(): (p['puntos_totales'] as num?)?.toInt() ?? 0
+        };
+      }
+      // --- FIN SINCRONIZACIÓN ---
+
       // 1. Contar ocurrencias de nombres para detectar duplicados en esta pantalla
       final nameCounts = <String, int>{};
       for (var rel in jugadoresRel) {
@@ -102,6 +119,8 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
         final j = rel['jugadores'] as Map<String, dynamic>;
         final String primerNombre = (j['nombre'] ?? '').toString();
         final String apellidos = (j['apellidos'] ?? '').toString();
+        final String idStr = j['id'].toString();
+
         // Si hay duplicados en esta pantalla, mostramos apellido
         final String displayName = (nameCounts[primerNombre] ?? 0) > 1 
             ? '$primerNombre $apellidos'.trim() 
@@ -120,7 +139,7 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
           'precio': (j['precio'] as num?)?.toDouble() ?? 0.0,
           'clausula': (rel['clausula'] as num?)?.toDouble() ?? ((j['precio'] ?? 0) * 1.25),
           'clausula_abierta_hasta': rel['clausula_abierta_hasta'],
-          'puntos_totales': j['puntos'] ?? 0,
+          'puntos_totales': pointsMap[idStr] ?? (j['puntos'] ?? 0),
           'ultimos_puntos': (j['estadisticas_jugadores'] as List?)
                   ?.map((s) => (s['puntos_calculados'] as num).toInt())
                   .toList()
@@ -695,20 +714,6 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
                       decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(4)),
                       child: Text('${p['puntos_totales']} pts', style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
-                    const SizedBox(width: 8),
-                    if (p['ultimos_puntos'] != null && (p['ultimos_puntos'] as List).isNotEmpty)
-                      ...((p['ultimos_puntos'] as List).map((pts) => Padding(
-                        padding: const EdgeInsets.only(right: 3),
-                        child: Container(
-                          width: 16,
-                          height: 16,
-                          decoration: BoxDecoration(
-                            color: pts >= 5 ? Colors.green : (pts > 0 ? Colors.orange : Colors.grey.withOpacity(0.3)),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(child: Text('$pts', style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold))),
-                        ),
-                      )))
                   ],
                 ),
               ],

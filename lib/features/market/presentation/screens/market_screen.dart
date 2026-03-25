@@ -209,7 +209,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           .select('*')
           .eq('usuario_id', user.id)
           .eq('estado', 'pendiente');
-
+      
       // 7. Cargar titulares/propietarios en esta liga
       final ownersResponse = await Supabase.instance.client
           .from('equipo_fantasy_jugadores')
@@ -226,7 +226,61 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           }
         }
 
-      // 8. Calcular nombres duplicados en pantalla
+      // 8. Cargar TODOS los jugadores para la búsqueda global (desde la vista para tener puntos correctos)
+      final playersResponse = await Supabase.instance.client
+          .from('vista_jugadores')
+          .select('*')
+          .order('nombre');
+      
+      final List<Map<String, dynamic>> allPlayers = List<Map<String, dynamic>>.from(playersResponse);
+
+      // --- SINCRONIZACIÓN DE PUNTOS ---
+      // Usamos los puntos de la vista (source of truth) para actualizar todas las listas
+      final Map<String, int> pointsMap = {
+        for (var p in allPlayers) p['id'].toString(): (p['puntos_totales'] as num?)?.toInt() ?? 0
+      };
+
+      void syncPoints(List<Map<String, dynamic>> list, {String playerKey = 'jugador'}) {
+        for (var item in list) {
+          final jugador = item[playerKey];
+          if (jugador != null) {
+            final id = jugador['id']?.toString();
+            if (id != null && pointsMap.containsKey(id)) {
+              jugador['puntos_totales'] = pointsMap[id];
+            }
+          }
+        }
+      }
+
+      syncPoints(mercadoPlayers);
+      syncPoints(misVentas);
+      syncPoints(misPujas, playerKey: 'mercado'); // misPujas tiene mercado->jugador
+      // En misPujas el jugador está dentro de mercado
+      for (var p in misPujas) {
+        if (p['mercado'] != null && p['mercado']['jugador'] != null) {
+          final id = p['mercado']['jugador']['id']?.toString();
+          if (id != null && pointsMap.containsKey(id)) {
+            p['mercado']['jugador']['puntos_totales'] = pointsMap[id];
+          }
+        }
+      }
+      
+      syncPoints(misOfertasP2P);
+      syncPoints(ofertasP2PRecibidas);
+
+      // Sincronizar ofertas de la liga y de mercado (mercado -> jugador)
+      for (var item in [...ofertasLigaRecibidas, ...offersResponse]) {
+        if (item['mercado'] != null && item['mercado']['jugador'] != null) {
+          final j = item['mercado']['jugador'];
+          final id = j['id']?.toString();
+          if (id != null && pointsMap.containsKey(id)) {
+            j['puntos_totales'] = pointsMap[id];
+          }
+        }
+      }
+      // --- FIN SINCRONIZACIÓN ---
+
+      // 9. Calcular nombres duplicados en pantalla
       final List<String> allVisibleNames = [
         ...marketList.map((p) => (p['jugador']?['nombre'] ?? '').toString()),
         ...misPujas.map((p) => (p['mercado']?['jugador']?['nombre'] ?? '').toString()),
@@ -256,12 +310,6 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
       
       final squadSize = (teamPlayersResponse as List).length;
 
-      // 7. Cargar TODOS los jugadores para la búsqueda global (desde la vista para tener puntos correctos)
-      final playersResponse = await Supabase.instance.client
-          .from('vista_jugadores')
-          .select('*')
-          .order('nombre');
-
       if (mounted) {
         setState(() {
           _duplicateNames = newDuplicates;
@@ -280,7 +328,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           _ofertasMercado = List<Map<String, dynamic>>.from(offersResponse);
           _historial = List<Map<String, dynamic>>.from(historyResponse as List).where((t) => t['comprador_id'] == user.id || t['vendedor_id'] == user.id).toList();
           _playerOwners = ownersMap;
-          _allPlayers = List<Map<String, dynamic>>.from(playersResponse);
+          _allPlayers = allPlayers;
           _isLoading = false;
         });
       }
