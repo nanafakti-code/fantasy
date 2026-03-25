@@ -718,9 +718,10 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   Future<void> _rejectP2POffer(String ofertaId) async {
     try {
       setState(() => _isLoading = true);
+      // Elimina la oferta en lugar de solo cambiar estado, permite que se envíe una nueva oferta al mismo jugador
       await Supabase.instance.client
           .from('ofertas_jugadores')
-          .update({'estado': 'rechazada'})
+          .delete()
           .eq('id', ofertaId);
       
       await _loadInitialData();
