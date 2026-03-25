@@ -57,7 +57,7 @@ class AdminDashboardScreen extends ConsumerWidget {
               subtitle: 'Gestionar jornadas y resultados de partidos oficiales',
               icon: Icons.calendar_month_rounded,
               color: Colors.blueAccent,
-              onTap: () => context.push('/admin/points'),
+              onTap: () => context.push('/admin/matches'),
             ),
             const SizedBox(height: 32),
             const Text(

@@ -100,9 +100,10 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
     bool convocado = stat?['convocado'] ?? true; // Default to true if already editing
     bool titular = stat?['titular'] ?? false;
     bool noJugo = stat?['minutos_jugados'] == 0 && stat != null;
-    bool amarilla = (stat?['tarjetas_amarillas'] ?? 0) > 0;
+    bool amarilla = (stat?['tarjetas_amarillas'] ?? 0) == 1;
     bool dobleAmarilla = (stat?['tarjetas_amarillas'] ?? 0) >= 2;
     bool tarjetaRoja = (stat?['tarjetas_rojas'] ?? 0) > 0;
+    int golesRecibidos = stat?['goles_recibidos'] ?? 0;
 
     showModalBottomSheet(
       context: context,
@@ -156,25 +157,48 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
                     value: titular,
                     onChanged: (val) => setMState(() => titular = val!),
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // Goles (contador)
-                  _buildCounter('Goles', goles, (v) => setMState(() => goles = v)),
                   const SizedBox(height: 12),
                   
-                  // Goles Propia (contador)
-                  _buildCounter('Goles en propia', golesPropia, (v) => setMState(() => golesPropia = v)),
-                  const SizedBox(height: 16),
-
                   // Portería 0
                   CheckboxListTile(
                     title: const Text('Portería 0', style: TextStyle(color: Colors.white)),
                     subtitle: const Text('Puntos extra por imbatibilidad', 
                       style: TextStyle(color: Colors.white30, fontSize: 12)),
                     value: porteriaCero,
-                    onChanged: (val) => setMState(() => porteriaCero = val!),
+                    onChanged: (val) => setMState(() {
+                      porteriaCero = val!;
+                      if (val) {
+                        golesRecibidos = 0;
+                        golesPropia = 0;
+                      }
+                    }),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+                  
+                  const Divider(color: Colors.white10),
+                  const SizedBox(height: 12),
+
+                  // Goles (contador)
+                  _buildCounter('Goles', goles, (v) => setMState(() => goles = v)),
+                  const SizedBox(height: 12),
+                  
+                  // Goles Propia (contador)
+                  _buildCounter('Goles en propia', golesPropia, (v) => setMState(() {
+                    golesPropia = v;
+                    if (v > 0) {
+                      porteriaCero = false;
+                    }
+                  })),
+                  const SizedBox(height: 12),
+
+                  // Goles recibidos (contador)
+                  _buildCounter('Goles recibidos equipo', golesRecibidos, (v) => setMState(() {
+                    golesRecibidos = v;
+                    if (v > 0) {
+                      porteriaCero = false;
+                    }
+                  })),
+                  const SizedBox(height: 20),
                   
                   // Tarjetas
                   const Divider(color: Colors.white10),
@@ -233,6 +257,7 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
                       'asistencias': 0, // Eliminado
                       'tarjetas_amarillas': (convocado && !noJugo) ? (dobleAmarilla ? 2 : (amarilla ? 1 : 0)) : 0,
                       'tarjetas_rojas': (convocado && !noJugo) ? (tarjetaRoja ? 1 : 0) : 0,
+                      'goles_recibidos': (convocado && !noJugo) ? golesRecibidos : 0,
                       'minutos_jugados': (convocado && !noJugo) ? (titular ? 90 : 45) : 0,
                     });
                     Navigator.pop(ctx);
@@ -260,6 +285,12 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
         ],
       ),
     );
+  }
+
+  String _formatPoints(dynamic pts) {
+    if (pts == null) return '0';
+    final n = pts is num ? pts : num.tryParse(pts.toString()) ?? 0;
+    return n % 1 == 0 ? n.toInt().toString() : n.toString();
   }
 
   Widget _buildEscudo(String? url) {
@@ -415,7 +446,7 @@ class _AdminPointsScreenState extends State<AdminPointsScreen> {
               border: Border.all(color: AppColors.primary.withOpacity(0.3)),
             ), 
             child: Text(
-              '${p['stats'][0]['puntos_calculados']}', 
+              _formatPoints(p['stats'][0]['puntos_calculados']), 
               style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)
             )
           )

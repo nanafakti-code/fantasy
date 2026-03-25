@@ -106,15 +106,18 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
       // 1d. Cargar mis ofertas activas a ESTE rival específico para marcar los jugadores
       final myExistingOffers = await Supabase.instance.client
           .from('ofertas_jugadores')
-          .select('jugador_id, monto')
+          .select('id, jugador_id, monto')
           .eq('comprador_id', myId)
           .eq('vendedor_id', widget.userId)
           .eq('liga_id', _ligaId!)
           .eq('estado', 'pendiente');
       
-      final Map<String, double> offersMap = {};
+      final Map<String, Map<String, dynamic>> offersMap = {};
       for (var o in myExistingOffers) {
-        offersMap[o['jugador_id'].toString()] = (o['monto'] as num).toDouble();
+        offersMap[o['jugador_id'].toString()] = {
+          'monto': (o['monto'] as num).toDouble(),
+          'id': o['id'].toString(),
+        };
       }
 
       // 2. Cargar el equipo del rival
@@ -160,7 +163,8 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           'equipo_nombre': j['equipos_reales']?['nombre'],
           'puntos_totales': j['puntos'] ?? 0,
           'has_offer': offersMap.containsKey(j['id'].toString()),
-          'my_offer_amount': offersMap[j['id'].toString()],
+          'my_offer_amount': offersMap[j['id'].toString()]?['monto'],
+          'my_offer_id': offersMap[j['id'].toString()]?['id'],
           'ultimos_puntos': (j['estadisticas_jugadores'] as List?)
                   ?.map((s) => (s['puntos_calculados'] as num).toInt())
                   .toList()
@@ -271,6 +275,19 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
                   _showOfferDialog(p);
                 },
               ),
+              if (p['has_offer'] == true) ...[
+                const SizedBox(height: 12),
+                AppButton(
+                  label: 'CANCELAR OFERTA',
+                  backgroundColor: Colors.redAccent.withOpacity(0.1),
+                  labelColor: Colors.redAccent,
+                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _confirmCancelOffer(p);
+                  },
+                ),
+              ],
               const SizedBox(height: 12),
               AppButton(
                 label: canClausulazo ? 'CLAUSULAZO' : 'CLÁUSULA BLOQUEADA',
@@ -554,9 +571,52 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
         'create_at': DateTime.now().toIso8601String(),
       }, onConflict: 'liga_id,jugador_id,comprador_id,vendedor_id');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta enviada con éxito')));
-      setState(() => _isLoading = false);
+      _loadData();
     } catch (e) {
       debugPrint('Error submit offer: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _confirmCancelOffer(Map<String, dynamic> p) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text('Cancelar Oferta'),
+        content: Text('¿Deseas retirar tu oferta por ${p['name']}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('No')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _cancelarOferta(p);
+            },
+            child: const Text('SÍ, CANCELAR', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelarOferta(Map<String, dynamic> p) async {
+    final offerId = p['my_offer_id'];
+    if (offerId == null) return;
+    
+    setState(() => _isLoading = true);
+    try {
+      await Supabase.instance.client
+          .from('ofertas_jugadores')
+          .delete()
+          .eq('id', offerId);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta cancelada con éxito')));
+        _loadData();
+      }
+    } catch (e) {
+      debugPrint('Error cancellation offer: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       setState(() => _isLoading = false);
     }
   }
@@ -695,22 +755,21 @@ class _PlayerRivalTile extends StatelessWidget {
           children: [
             Text('$pos • ${player['equipo_nombre']}', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
             const SizedBox(height: 6),
-            Row(
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(4)),
                   child: Text('${player['puntos_totales']} pts', style: const TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(width: 8),
                 if (player['has_offer'] == true)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blueAccent.withOpacity(0.5))),
-                      child: const Text('OFERTA ENVIADA', style: TextStyle(color: Colors.blueAccent, fontSize: 8, fontWeight: FontWeight.bold)),
-                    ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.blueAccent.withOpacity(0.5))),
+                    child: const Text('OFERTA ENVIADA', style: TextStyle(color: Colors.blueAccent, fontSize: 8, fontWeight: FontWeight.bold)),
                   ),
                 if (player['ultimos_puntos'] != null && (player['ultimos_puntos'] as List).isNotEmpty)
                   ...((player['ultimos_puntos'] as List).map((pts) => Padding(

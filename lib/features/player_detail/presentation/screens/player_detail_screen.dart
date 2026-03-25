@@ -150,9 +150,10 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
       if (mounted) {
         final List rawStats = statsResponse as List;
         final stats = rawStats.map((s) {
-          final jornadaNum = s['partidos']?['jornadas']?['numero'] ?? '?';
+          final jornadaNum = s['partidos']?['jornadas']?['numero'] ?? 0;
           return {
             'jornada': 'J$jornadaNum',
+            'jornada_num': jornadaNum,
             'goles': s['goles'] ?? 0,
             'goles_propia': s['goles_propia'] ?? 0,
             'amarillas': s['tarjetas_amarillas'] ?? 0,
@@ -160,9 +161,13 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
             'titular': s['titular'] ?? false,
             'convocado': s['convocado'] ?? false,
             'porteria_cero': s['porteria_cero'] ?? false,
+            'goles_recibidos': s['goles_recibidos'] ?? 0,
             'pts': (s['puntos_calculados'] as num?)?.toInt() ?? 0,
           };
         }).toList();
+
+        // Ordenar por número de jornada ascendente (J25, J26, J27...)
+        stats.sort((a, b) => (a['jornada_num'] as int).compareTo(b['jornada_num'] as int));
 
         // Calcular totales y promedio localmente para asegurar consistencia inmediata
         int total = 0;
@@ -175,7 +180,8 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
             puntosPromedio: avg,
           );
           _stats = stats;
-          _selectedJornadaIndex = stats.isNotEmpty ? 0 : -1;
+          // Seleccionar por defecto la jornada más alta (el último elemento de la lista ordenada)
+          _selectedJornadaIndex = stats.isNotEmpty ? stats.length - 1 : -1;
           _isLoading = false;
         });
       }
@@ -613,6 +619,19 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
       'label': 'Portería a cero',
       'puntos': s['porteria_cero'] == true ? ptsPC : 0
     });
+    // Goles recibidos (penalización acumulada)
+    final totalRecibidos = s['goles_recibidos'] as int? ?? 0;
+    final factor = totalRecibidos ~/ 2;
+    if (factor > 0) {
+      int ptsRecibidos = -1;
+      if (pos == Posicion.defensa || pos == Posicion.portero) ptsRecibidos = -2;
+      
+      items.add({
+        'cantidad': totalRecibidos,
+        'label': 'Goles recibidos',
+        'puntos': factor * ptsRecibidos
+      });
+    }
 
     // Goles propia
     final gp = s['goles_propia'] as int;

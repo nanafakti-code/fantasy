@@ -18,6 +18,7 @@ import '../../features/activity/presentation/screens/activity_screen.dart';
 import '../../features/admin/presentation/screens/admin_dashboard_screen.dart';
 import '../../features/admin/presentation/screens/admin_leagues_screen.dart';
 import '../../features/admin/presentation/screens/admin_points_screen.dart';
+import '../../features/admin/presentation/screens/admin_calendar_screen.dart';
 import '../widgets/main_scaffold.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -137,7 +138,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'matches',
             name: 'admin-matches',
-            builder: (context, state) => const AdminPointsScreen(),
+            builder: (context, state) => const AdminCalendarScreen(),
           ),
         ],
       ),
