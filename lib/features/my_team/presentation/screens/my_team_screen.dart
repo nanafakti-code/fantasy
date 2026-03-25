@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../widgets/pitch_view.dart';
 import '../../../../core/widgets/main_scaffold.dart';
+import '../../../../core/utils/currency_formatter.dart';
 
 class MyTeamScreen extends ConsumerStatefulWidget {
   final int initialTab;
@@ -158,6 +159,13 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
       case 'delantero': return 'DL';
       default: return '??';
     }
+  }
+
+  bool _isClauseBlocked(String? dateStr) {
+    if (dateStr == null) return false;
+    final date = DateTime.tryParse(dateStr);
+    if (date == null) return false;
+    return date.isAfter(DateTime.now());
   }
 
   @override
@@ -325,57 +333,38 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
     final int realCount = _allOwnedPlayers.length;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: _StatChip(
-              label: 'Presupuesto',
-              value: '${(_presupuesto / 1000000).toStringAsFixed(1)}M',
-              color: AppColors.accent,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StatChip(
-              label: 'Valor equipo',
-              value: '${(realValor / 1000000).toStringAsFixed(1)}M',
-              color: Colors.yellow,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StatChip(
-              label: 'Jugadores',
-              value: '$realCount/26',
-              color: Colors.blueGrey,
-            ),
-          ),
+          _StatText(label: 'Presupuesto', value: CurrencyFormatter.format(_presupuesto), color: AppColors.accent),
+          _StatText(label: 'Valor equipo', value: CurrencyFormatter.format(realValor), color: Colors.yellow),
+          _StatText(label: 'Jugadores', value: '$realCount/26', color: Colors.white70),
         ],
       ),
     );
   }
 
+  Widget _StatText({required String label, required String value, required Color color}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.textMuted, fontSize: 10, letterSpacing: 0.5)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 15)),
+      ],
+    );
+  }
+
   Widget _buildPuntosStats() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Expanded(
-            child: _StatChip(
-              label: 'Puntos totales',
-              value: '$_puntosTotales pts',
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _StatChip(
-              label: 'Posición',
-              value: '$_posicionº',
-              color: AppColors.info,
-            ),
-          ),
+          _StatText(label: 'Puntos totales', value: '$_puntosTotales pts', color: AppColors.primary),
+          _StatText(label: 'Posición', value: '$_posicionº', color: AppColors.info),
         ],
       ),
     );
@@ -715,12 +704,22 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  'V. Merc.: ${((p['precio'] ?? 0) / 1000000).toStringAsFixed(1)}M',
+                  'V. Merc.: ${CurrencyFormatter.format((p['precio'] ?? 0))}',
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
                 ),
-                Text(
-                  'Cláusula: ${((p['clausula'] ?? 0) / 1000000).toStringAsFixed(1)}M',
-                  style: const TextStyle(color: AppColors.accent, fontSize: 11, fontWeight: FontWeight.bold),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_isClauseBlocked(p['clausula_abierta_hasta']))
+                      const Padding(
+                        padding: EdgeInsets.only(right: 4),
+                        child: Icon(Icons.lock_rounded, color: Colors.redAccent, size: 11),
+                      ),
+                    Text(
+                      CurrencyFormatter.format((p['clausula'] ?? 0)),
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ],
                 ),
                 _buildClauseCooldown(p['clausula_abierta_hasta']),
               ],
@@ -734,7 +733,8 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
 
   Widget _buildClauseCooldown(String? dateStr) {
     if (dateStr == null) return const SizedBox.shrink();
-    final date = DateTime.parse(dateStr);
+    final date = DateTime.tryParse(dateStr);
+    if (date == null) return const SizedBox.shrink();
     final now = DateTime.now();
     
     if (date.isAfter(now)) {
@@ -742,56 +742,24 @@ class _MyTeamScreenState extends ConsumerState<MyTeamScreen> {
       final days = diff.inDays;
       final hours = diff.inHours % 24;
       
-      return Text(
-        days > 0 ? 'BLOQUEADA: $days d $hours h' : 'BLOQUEADA: $hours h rest.',
-        style: const TextStyle(color: Colors.orange, fontSize: 8, fontWeight: FontWeight.bold),
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.access_time_rounded, color: Colors.redAccent, size: 9),
+          const SizedBox(width: 3),
+          Text(
+            days > 0 ? '$days d $hours h' : '$hours h rest.',
+            style: const TextStyle(color: Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold),
+          ),
+        ],
       );
     }
     
-    return const Text('CLÁUSULA ABIERTA', style: TextStyle(color: Colors.green, fontSize: 8, fontWeight: FontWeight.bold));
+    return const SizedBox.shrink();
   }
 }
 
-class _StatChip extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
 
-  const _StatChip({required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 10,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _BenchSlot extends StatelessWidget {
   final String pos;

@@ -23,6 +23,8 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
   List<Map<String, dynamic>> _stats = [];
   bool _isOwner = false;
   double? _clausula;
+  String? _clausulaAbiertaHasta;
+  String? _fechaFichaje;
   String? _equipoFantasyId;
   String? _marketId;
   double? _precioMinimoMercado;
@@ -70,7 +72,7 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
           _equipoFantasyId = equipoFantasy['id'];
           final ownershipResponse = await supabase
               .from('equipo_fantasy_jugadores')
-              .select('clausula')
+              .select('clausula, clausula_abierta_hasta, fecha_fichaje')
               .eq('equipo_fantasy_id', _equipoFantasyId!)
               .eq('jugador_id', widget.jugadorId)
               .maybeSingle();
@@ -78,6 +80,8 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
           if (ownershipResponse != null) {
             _isOwner = true;
             _clausula = (ownershipResponse['clausula'] as num?)?.toDouble();
+            _clausulaAbiertaHasta = ownershipResponse['clausula_abierta_hasta'] as String?;
+            _fechaFichaje = ownershipResponse['fecha_fichaje'] as String?;
           }
         }
       }
@@ -166,6 +170,19 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
       debugPrint('Error en PlayerDetailScreen: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  bool _isClauseBlocked(String? abiertaHastaStr, String? fechaFichStr) {
+    final now = DateTime.now();
+    if (abiertaHastaStr != null) {
+      final date = DateTime.tryParse(abiertaHastaStr);
+      if (date != null && date.isAfter(now)) return true;
+    }
+    if (fechaFichStr != null) {
+      final date = DateTime.tryParse(fechaFichStr);
+      if (date != null && date.add(const Duration(days: 14)).isAfter(now)) return true;
+    }
+    return false;
   }
 
   @override
@@ -338,12 +355,22 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.15),
+                          color: Colors.redAccent.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                          'CL: ${CurrencyFormatter.format(_clausula!)}',
-                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w900, fontSize: 13),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_isClauseBlocked(_clausulaAbiertaHasta, _fechaFichaje))
+                              const Padding(
+                                padding: EdgeInsets.only(right: 3),
+                                child: Icon(Icons.lock_rounded, color: Colors.redAccent, size: 11),
+                              ),
+                            Text(
+                              CurrencyFormatter.format(_clausula!),
+                              style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900, fontSize: 13),
+                            ),
+                          ],
                         ),
                       ),
                   ],

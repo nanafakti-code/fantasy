@@ -7,6 +7,21 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
 import '../../../../core/widgets/main_scaffold.dart';
 import '../../../../core/utils/currency_formatter.dart';
+ 
+bool _isClauseBlockedGlobal(Map<String, dynamic> p) {
+  final now = DateTime.now();
+  final abiertaHastaStr = p['clausula_abierta_hasta'];
+  if (abiertaHastaStr != null) {
+    final date = DateTime.tryParse(abiertaHastaStr);
+    if (date != null && date.isAfter(now)) return true;
+  }
+  final fechaFichStr = p['fecha_fichaje'];
+  if (fechaFichStr != null) {
+    final date = DateTime.tryParse(fechaFichStr);
+    if (date != null && date.add(const Duration(days: 14)).isAfter(now)) return true;
+  }
+  return false;
+}
 
 class UserTeamScreen extends ConsumerStatefulWidget {
   final String userId;
@@ -112,7 +127,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
 
       final jugadoresRel = await Supabase.instance.client
           .from('equipo_fantasy_jugadores')
-          .select('es_titular, orden_suplente, jugador_id, clausula, clausula_abierta_hasta, jugadores(*, equipos_reales(nombre, escudo_url), estadisticas_jugadores(puntos_calculados, created_at))')
+          .select('es_titular, orden_suplente, jugador_id, clausula, clausula_abierta_hasta, fecha_fichaje, jugadores(*, equipos_reales(nombre, escudo_url), estadisticas_jugadores(puntos_calculados, created_at))')
           .eq('equipo_fantasy_id', equipoRival['id']);
 
       final List<Map<String, dynamic>> loadedPlayers = [];
@@ -125,6 +140,7 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
           'precio': j['precio'],
           'clausula': rel['clausula'] ?? (j['precio'] * 1.25),
           'clausula_abierta_hasta': rel['clausula_abierta_hasta'],
+          'fecha_fichaje': rel['fecha_fichaje'],
           'es_titular': rel['es_titular'],
           'foto_url': j['foto_url'],
           'equipo_nombre': j['equipos_reales']?['nombre'],
@@ -168,10 +184,8 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
   }
 
   void _showActionModal(Map<String, dynamic> p) {
-    final now = DateTime.now();
-    final abiertaHastaStr = p['clausula_abierta_hasta'];
-    final DateTime? abiertaHasta = abiertaHastaStr != null ? DateTime.parse(abiertaHastaStr) : null;
-    final bool canClausulazo = abiertaHasta == null || now.isAfter(abiertaHasta);
+    final bool isBlocked = _isClauseBlockedGlobal(p);
+    final bool canClausulazo = !isBlocked;
     final double clausula = (p['clausula'] as num).toDouble();
 
     showModalBottomSheet(
@@ -246,8 +260,8 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
               const SizedBox(height: 12),
               AppButton(
                 label: canClausulazo ? 'CLAUSULAZO' : 'CLÁUSULA BLOQUEADA',
-                backgroundColor: canClausulazo ? AppColors.error : Colors.grey,
-                icon: const Icon(Icons.flash_on_rounded, color: Colors.white),
+                backgroundColor: canClausulazo ? AppColors.error : Colors.blueGrey,
+                icon: Icon(canClausulazo ? Icons.flash_on_rounded : Icons.lock_rounded, color: Colors.white),
                 onPressed: canClausulazo 
                   ? () {
                       Navigator.pop(ctx);
@@ -698,64 +712,68 @@ class _PlayerRivalTile extends StatelessWidget {
             ),
           ],
         ),
-        trailing: _buildClauseStatus(player['clausula'], player['clausula_abierta_hasta']),
+        trailing: _buildClauseStatus(player),
       ),
     );
   }
 
-  Widget _buildClauseStatus(dynamic clausulaAmt, String? openDateStr) {
+  Widget _buildClauseStatus(Map<String, dynamic> player) {
+    final clausulaAmt = player['clausula'];
     if (clausulaAmt == null) return const SizedBox.shrink();
     final double amount = (clausulaAmt as num).toDouble();
     
-    bool isOpen = true;
+    final bool isBlocked = _isClauseBlockedGlobal(player);
     Duration? remaining;
-    if (openDateStr != null) {
-      final openDate = DateTime.parse(openDateStr);
-      final now = DateTime.now();
-      if (openDate.isAfter(now)) {
-        isOpen = false;
-        remaining = openDate.difference(now);
+    if (isBlocked) {
+      final abiertaHastaStr = player['clausula_abierta_hasta'];
+      final fechaFichStr = player['fecha_fichaje'];
+      DateTime? limit;
+      if (abiertaHastaStr != null) limit = DateTime.tryParse(abiertaHastaStr);
+      if (limit == null && fechaFichStr != null) {
+        final f = DateTime.tryParse(fechaFichStr);
+        if (f != null) limit = f.add(const Duration(days: 14));
+      }
+      if (limit != null) {
+        remaining = limit.difference(DateTime.now());
       }
     }
 
-    final color = isOpen ? Colors.greenAccent : Colors.redAccent;
-    final icon = isOpen ? Icons.lock_open_rounded : Icons.lock_rounded;
+    final icon = isBlocked ? Icons.lock_rounded : Icons.lock_open_rounded;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'VALOR: ',
-              style: TextStyle(color: Colors.white38, fontSize: 8, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${NumberFormat.decimalPattern('es_ES').format((player['precio'] as num).toInt())}€',
-              style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
-            ),
-          ],
+        Text(
+          'V. Merc.: ${CurrencyFormatter.format((player['precio'] as num))}',
+          style: const TextStyle(color: Colors.white38, fontSize: 7.5, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 2),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 11),
+            Icon(icon, color: Colors.redAccent, size: 11),
             const SizedBox(width: 4),
             Text(
-              '${NumberFormat.decimalPattern('es_ES').format(amount.toInt())}€',
-              style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 13),
+              CurrencyFormatter.format(amount),
+              style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900, fontSize: 13),
             ),
           ],
         ),
-        if (!isOpen && remaining != null)
-          Text(
-            remaining.inDays > 0 
-              ? '${remaining.inDays}d ${remaining.inHours % 24}h' 
-              : '${remaining.inHours}h ${remaining.inMinutes % 60}m',
-            style: TextStyle(color: color.withOpacity(0.8), fontSize: 8.5, fontWeight: FontWeight.w800),
+        if (isBlocked && remaining != null)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.access_time_rounded, color: Colors.redAccent, size: 9),
+              const SizedBox(width: 3),
+              Text(
+                remaining.inDays > 0 
+                  ? '${remaining.inDays}d ${remaining.inHours % 24}h' 
+                  : '${remaining.inHours}h ${remaining.inMinutes % 60}m',
+                style: const TextStyle(color: Colors.redAccent, fontSize: 8.5, fontWeight: FontWeight.w800),
+              ),
+            ],
           ),
       ],
     );

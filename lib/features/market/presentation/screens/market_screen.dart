@@ -257,7 +257,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
           _misPujas = misPujas;
           _misOfertasP2P = misOfertasP2P;
           _ofertasP2PRecibidas = ofertasP2PRecibidas;
-          _ofertasLigaRecibidas = ofertasLigaRecibidas;
+          _ofertasLigaRecibidas = ofertasLigaRecibidas.where((o) => !misVentas.any((v) => v['id'] == o['mercado_id'])).toList();
           _pujasRecibidas = pujasRecibidas;
           _ofertasMercado = List<Map<String, dynamic>>.from(offersResponse);
           _historial = List<Map<String, dynamic>>.from(historyResponse as List);
@@ -664,7 +664,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
 
   Widget _buildP2PActionBox(Map<String, dynamic> oferta) {
     return Container(
-      margin: const EdgeInsets.only(top: -4, bottom: 8),
+      margin: const EdgeInsets.only(top: 0, bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.primary.withOpacity(0.05),
@@ -736,7 +736,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   Widget _buildLeagueOfferBox(Map<String, dynamic> oferta, Map<String, dynamic> venta) {
     final monto = (oferta['monto'] as num?)?.toDouble() ?? 0.0;
     return Container(
-      margin: const EdgeInsets.only(top: -4, bottom: 8),
+      margin: const EdgeInsets.only(top: 0, bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.primary.withOpacity(0.05),
@@ -1553,7 +1553,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
 
   Widget _buildLigaActionBox(Map<String, dynamic> oferta) {
     return Container(
-      margin: const EdgeInsets.only(top: -4, bottom: 8),
+      margin: const EdgeInsets.only(top: 0, bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.yellow.withOpacity(0.05),
@@ -2072,7 +2072,7 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                       if (equipoData?['escudo_url'] != null)
                         Image.network(equipoData!['escudo_url'], width: 14, height: 14),
                       const SizedBox(width: 4),
-                      Flexible(
+                      Expanded(
                         child: Text(
                           equipoData?['nombre'] ?? 'LALIGA', 
                           style: const TextStyle(color: Colors.white54, fontSize: 11),

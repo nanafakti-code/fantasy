@@ -47,9 +47,9 @@ BEGIN
     DELETE FROM public.mercado 
     WHERE liga_id = p_liga_id AND vendedor_id IS NULL AND fecha_fin <= NOW();
 
-    -- 3. Limpiar jugadores de USUARIOS caducados (excedieron las 48h)
+    -- 3. Limpiar TODOS los jugadores de USUARIOS (se quitan del mercado en cada refresco para que tengan que volver a ponerlos)
     DELETE FROM public.mercado 
-    WHERE liga_id = p_liga_id AND vendedor_id IS NOT NULL AND fecha_fin < NOW();
+    WHERE liga_id = p_liga_id AND vendedor_id IS NOT NULL;
 
     -- 4. Generar NUEVAS ofertas de la liga para vendedores activos (Ciclo diario cada vez que cierra el mercado)
     PERFORM public.generar_ofertas_liga_mercado(p_liga_id);

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_widgets.dart';
 import '../../../../core/widgets/main_scaffold.dart';
+import '../../../../core/utils/currency_formatter.dart';
 
 class LeagueScreen extends ConsumerStatefulWidget {
   const LeagueScreen({super.key});
@@ -337,7 +338,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     Text(
-                                      'Valor: ${(valor / 1000000).toStringAsFixed(1)}M',
+                                      'Valor: ${CurrencyFormatter.format(valor)}',
                                       style: const TextStyle(color: AppColors.textMuted, fontSize: 11),
                                     ),
                                   ],
