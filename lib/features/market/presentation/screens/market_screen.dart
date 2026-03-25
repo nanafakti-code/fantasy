@@ -2044,67 +2044,71 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
           
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   // Fila 1: Pos, Nombre y Puntos (PFSY)
                   Row(
                     children: [
                       _PosTag(pos: pos, color: color),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           jugador['nombre'] ?? '', 
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                           overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
                       ),
-                      const Text('PTS ', style: TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.bold)),
-                      Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                      const Text('PTS ', style: TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold)),
+                      Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
                     ],
                   ),
                   
                   // Fila 2: Equipo y Estatus "Alineable"
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Row(
                     children: [
                       if (equipoData?['escudo_url'] != null)
-                        Image.network(equipoData!['escudo_url'], width: 14, height: 14),
-                      const SizedBox(width: 4),
+                        Image.network(equipoData!['escudo_url'], width: 12, height: 12),
+                      const SizedBox(width: 3),
                       Expanded(
                         child: Text(
                           equipoData?['nombre'] ?? 'LALIGA', 
-                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                          style: const TextStyle(color: Colors.white54, fontSize: 9),
                           overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      const Text('Alineable', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      const Text('Alineable', style: TextStyle(color: Colors.green, fontSize: 9, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   
                   // Tiempo restante (DINÁMICO)
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 3),
                   Row(
                     children: [
-                      const Icon(Icons.timer_outlined, color: Colors.white30, size: 14),
-                      const SizedBox(width: 4),
-                      Text(_timeLeft, style: const TextStyle(color: Colors.white30, fontSize: 11, fontWeight: FontWeight.bold)),
+                      const Icon(Icons.timer_outlined, color: Colors.white30, size: 12),
+                      const SizedBox(width: 3),
+                      Text(_timeLeft, style: const TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.bold)),
                     ],
                   ),
 
                   if (widget.ownerName != null) ...[
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Row(
                       children: [
-                        const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 12),
-                        const SizedBox(width: 4),
+                        const Icon(Icons.person_outline_rounded, color: AppColors.primary, size: 11),
+                        const SizedBox(width: 3),
                         Expanded(
                           child: Text(
                             widget.ownerName!, 
-                            style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold),
+                            style: const TextStyle(color: AppColors.primary, fontSize: 8, fontWeight: FontWeight.bold),
                             overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
                           ),
                         ),
                       ],
@@ -2121,46 +2125,53 @@ class _PremiumMarketTileState extends State<_PremiumMarketTile> {
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('Valor: ${CurrencyFormatter.format(valor as num)}', style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 10)),
+                            Text('Valor: ${CurrencyFormatter.format(valor as num)}', style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8)),
                             FittedBox(
                               fit: BoxFit.scaleDown,
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 CurrencyFormatter.format(precio as num), 
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)
                               ),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (widget.bidCount != null)
-                             Padding(
-                               padding: const EdgeInsets.only(bottom: 4, right: 4),
-                               child: Text(
-                                 'Pujas: ${widget.bidCount}',
-                                 style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.bold),
+                      SizedBox(
+                        width: 100,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            if (widget.bidCount != null)
+                               Padding(
+                                 padding: const EdgeInsets.only(bottom: 4),
+                                 child: Text(
+                                   'Pujas: ${widget.bidCount}',
+                                   style: const TextStyle(color: Colors.white38, fontSize: 9, fontWeight: FontWeight.bold),
+                                   overflow: TextOverflow.ellipsis,
+                                 ),
                                ),
-                             ),
-                          ElevatedButton(
-                            onPressed: widget.onAction ?? () {},
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: widget.actionLabel == 'Acciones' ? AppColors.primary : (widget.isOwner ? AppColors.accent : AppColors.success),
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ElevatedButton(
+                              onPressed: widget.onAction ?? () {},
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: widget.actionLabel == 'Acciones' ? AppColors.primary : (widget.isOwner ? AppColors.accent : AppColors.success),
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text(
+                                widget.actionLabel ?? (widget.isOwner ? 'Quitar' : 'Fichar'),
+                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            child: Text(
-                              widget.actionLabel ?? (widget.isOwner ? 'Quitar' : 'Fichar'),
-                              style: const TextStyle(fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
                   ),
