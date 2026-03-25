@@ -529,13 +529,15 @@ class _UserTeamScreenState extends ConsumerState<UserTeamScreen> {
     setState(() => _isLoading = true);
     try {
       final myId = Supabase.instance.client.auth.currentUser?.id;
-      await Supabase.instance.client.from('ofertas_jugadores').insert({
+      await Supabase.instance.client.from('ofertas_jugadores').upsert({
         'liga_id': _ligaId,
         'jugador_id': p['id'],
         'vendedor_id': widget.userId,
         'comprador_id': myId,
         'monto': monto,
-      });
+        'estado': 'pendiente',
+        'create_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'liga_id,jugador_id,comprador_id,vendedor_id');
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Oferta enviada con éxito')));
       setState(() => _isLoading = false);
     } catch (e) {
