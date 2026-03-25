@@ -307,7 +307,7 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
 
     if (_selectedTeamName != null) {
       pool = pool.where((j) {
-        final equipoNombre = j['equipo_id']?['nombre']?.toString() ?? '';
+        final equipoNombre = j['equipo_nombre']?.toString() ?? j['equipo_id']?['nombre']?.toString() ?? '';
         return equipoNombre == _selectedTeamName;
       });
     }
@@ -325,8 +325,8 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
         break;
       case 'Equipo':
         result.sort((a, b) {
-          final ea = a['equipo_id']?['nombre']?.toString() ?? '';
-          final eb = b['equipo_id']?['nombre']?.toString() ?? '';
+          final ea = a['equipo_nombre']?.toString() ?? a['equipo_id']?['nombre']?.toString() ?? '';
+          final eb = b['equipo_nombre']?.toString() ?? b['equipo_id']?['nombre']?.toString() ?? '';
           return ea.compareTo(eb);
         });
         break;
@@ -2289,7 +2289,8 @@ class _CreativePlayerTile extends StatelessWidget {
     final displayName = showFullName ? '$nombre $apellidos' : nombre;
     final dynamic rawEquipo = jugador['equipo_id'];
     final Map<String, dynamic>? equipoData = rawEquipo is Map<String, dynamic> ? rawEquipo : null;
-    final equipoNombre = equipoData?['nombre'] ?? 'Sin equipo';
+    final equipoNombre = jugador['equipo_nombre'] ?? equipoData?['nombre'] ?? 'Sin equipo';
+    final equipoEscudo = jugador['equipo_escudo'] ?? equipoData?['escudo_url'];
     final precio = (jugador['precio'] as num?)?.toDouble() ?? 0.0;
     final pos = jugador['posicion'] ?? '';
     final color = _getPosColor(pos);
@@ -2348,7 +2349,7 @@ class _CreativePlayerTile extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           const Text('PTS', style: TextStyle(color: Colors.white30, fontSize: 8, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-                          Text('${jugador['puntos_totales'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, height: 1.1)),
+                          Text('${(jugador['puntos_totales'] as num?)?.toInt() ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, height: 1.1)),
                         ],
                       ),
                     ],
@@ -2356,8 +2357,8 @@ class _CreativePlayerTile extends StatelessWidget {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      if (equipoData?['escudo_url'] != null) ...[
-                        Image.network(equipoData!['escudo_url'], width: 12, height: 12),
+                      if (equipoEscudo != null) ...[
+                        Image.network(equipoEscudo, width: 12, height: 12),
                         const SizedBox(width: 4),
                       ],
                       Expanded(child: Text(equipoNombre, style: const TextStyle(color: Colors.white54, fontSize: 10), overflow: TextOverflow.ellipsis)),

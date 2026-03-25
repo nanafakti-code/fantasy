@@ -31,6 +31,7 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
   double _userBudget = 0;
   double _totalPujado = 0;
   int _playerCount = 0;
+  int _selectedJornadaIndex = 0;
 
   @override
   void initState() {
@@ -147,22 +148,34 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
           .limit(5);
 
       if (mounted) {
+        final List rawStats = statsResponse as List;
+        final stats = rawStats.map((s) {
+          final jornadaNum = s['partidos']?['jornadas']?['numero'] ?? '?';
+          return {
+            'jornada': 'J$jornadaNum',
+            'goles': s['goles'] ?? 0,
+            'goles_propia': s['goles_propia'] ?? 0,
+            'amarillas': s['tarjetas_amarillas'] ?? 0,
+            'rojas': s['tarjetas_rojas'] ?? 0,
+            'titular': s['titular'] ?? false,
+            'convocado': s['convocado'] ?? false,
+            'porteria_cero': s['porteria_cero'] ?? false,
+            'pts': (s['puntos_calculados'] as num?)?.toInt() ?? 0,
+          };
+        }).toList();
+
+        // Calcular totales y promedio localmente para asegurar consistencia inmediata
+        int total = 0;
+        for (var s in stats) { total += (s['pts'] as int); }
+        double avg = stats.isNotEmpty ? total / stats.length : 0.0;
+
         setState(() {
-          _jugador = Jugador.fromJson(playerResponse);
-          
-          final List rawStats = statsResponse as List;
-          _stats = rawStats.map((s) {
-            final jornadaNum = s['partidos']?['jornadas']?['numero'] ?? '?';
-            return {
-              'jornada': 'J$jornadaNum',
-              'goles': s['goles'] ?? 0,
-              'amarillas': s['tarjetas_amarillas'] ?? 0,
-              'rojas': s['tarjetas_rojas'] ?? 0,
-              'titular': s['titular'] ?? false,
-              'pts': (s['puntos_calculados'] as num?)?.toInt() ?? 0,
-            };
-          }).toList();
-          
+          _jugador = Jugador.fromJson(playerResponse).copyWith(
+            puntosTotales: total,
+            puntosPromedio: avg,
+          );
+          _stats = stats;
+          _selectedJornadaIndex = stats.isNotEmpty ? 0 : -1;
           _isLoading = false;
         });
       }
@@ -216,11 +229,11 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildPlayerCard(context, _jugador!),
+                      const SizedBox(height: 32),
+                      _buildJornadaSelector(context),
                       const SizedBox(height: 24),
-                      _buildStatsTable(context),
-                      const SizedBox(height: 24),
-                      _buildPointsChart(context),
-                      const SizedBox(height: 100),
+                      _buildJornadaDetail(context),
+                      const SizedBox(height: 80),
                     ],
                   ),
                 ),
@@ -379,12 +392,17 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
             ),
           ),
           Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                '${(jugador.puntosPromedio ?? 0).toStringAsFixed(1)}',
-                style: const TextStyle(color: AppColors.primary, fontSize: 32, fontWeight: FontWeight.w900),
+                '${jugador.puntosTotales}',
+                style: const TextStyle(color: AppColors.primary, fontSize: 32, fontWeight: FontWeight.w900, height: 1),
               ),
-              const Text('avg pts', style: TextStyle(color: AppColors.textMuted, fontSize: 10, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              Text(
+                '${(jugador.puntosPromedio ?? 0).toStringAsFixed(1)} avg', 
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold)
+              ),
             ],
           ),
         ],
@@ -392,128 +410,240 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
     );
   }
 
-  Widget _buildStatsTable(BuildContext context) {
+  Widget _buildJornadaSelector(BuildContext context) {
+    if (_stats.isEmpty) return const SizedBox.shrink();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Estadísticas recientes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-            Text('${_stats.length} partidos', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (_stats.isEmpty)
-          const AppCard(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text('No hay estadísticas registradas para este jugador', style: TextStyle(color: AppColors.textMuted)),
-              ),
-            ),
-          )
-        else
-          AppCard(
-            padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
-                  child: const Row(
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 70,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _stats.length,
+            itemBuilder: (context, index) {
+              final s = _stats[index];
+              final isSelected = _selectedJornadaIndex == index;
+              final pts = s['pts'] as int;
+
+              return GestureDetector(
+                onTap: () => setState(() => _selectedJornadaIndex = index),
+                child: Container(
+                  width: 60,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primary.withOpacity(0.1) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected ? AppColors.primary : Colors.white10,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _TableHeader(text: 'Jornada', flex: 2),
-                      _TableHeader(icon: Icon(Icons.sports_soccer, color: AppColors.success, size: 14), flex: 1, alignCenter: true),
-                      _TableHeader(icon: Icon(Icons.rectangle, color: AppColors.warning, size: 14), flex: 1, alignCenter: true),
-                      _TableHeader(icon: Icon(Icons.rectangle, color: AppColors.error, size: 14), flex: 1, alignCenter: true),
-                      _TableHeader(text: 'Titular', flex: 2, alignCenter: true),
-                      _TableHeader(text: 'Pts', flex: 1, alignRight: true),
+                      Text(
+                        s['jornada'],
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : Colors.white38,
+                          fontSize: 12,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$pts',
+                        style: TextStyle(
+                          color: pts > 0 ? (isSelected ? AppColors.primary : Colors.white) : Colors.white24,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (isSelected)
+                        Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          width: 12,
+                          height: 2,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                ..._stats.map((s) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFF0F172A)))),
-                  child: Row(
-                    children: [
-                      Expanded(flex: 2, child: Text(s['jornada'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                      Expanded(child: Text('${s['goles']}', textAlign: TextAlign.center, style: TextStyle(color: (s['goles'] > 0) ? AppColors.success : AppColors.textMuted, fontWeight: FontWeight.bold))),
-                      Expanded(child: Text('${s['amarillas']}', textAlign: TextAlign.center, style: TextStyle(color: (s['amarillas'] > 0) ? AppColors.warning : AppColors.textMuted))),
-                      Expanded(child: Text('${s['rojas']}', textAlign: TextAlign.center, style: TextStyle(color: (s['rojas'] > 0) ? AppColors.error : AppColors.textMuted))),
-                      Expanded(
-                        flex: 2,
-                        child: Icon(
-                          s['titular'] ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          color: s['titular'] ? AppColors.success : AppColors.textMuted,
-                          size: 16,
-                        ),
-                      ),
-                      Expanded(child: Text('${s['pts']}', textAlign: TextAlign.right, style: TextStyle(color: (s['pts'] > 0) ? AppColors.primary : AppColors.textMuted, fontWeight: FontWeight.w900, fontSize: 16))),
-                    ],
-                  ),
-                )),
-              ],
-            ),
+              );
+            },
           ),
+        ),
       ],
     );
   }
 
-  Widget _buildPointsChart(BuildContext context) {
-    if (_stats.length < 2) return const SizedBox.shrink();
+  Widget _buildJornadaDetail(BuildContext context) {
+    if (_stats.isEmpty || _selectedJornadaIndex == -1) {
+      return const AppCard(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: Text('No hay estadísticas registradas', style: TextStyle(color: Colors.white24)),
+          ),
+        ),
+      );
+    }
 
-    // Invertir para mostrar de más viejo a más nuevo en el gráfico
-    final reversedStats = _stats.reversed.toList();
-    final maxPts = reversedStats.map((s) => s['pts'] as int).reduce((a, b) => a > b ? a : b);
+    final s = _stats[_selectedJornadaIndex];
+    final List<Map<String, dynamic>> breakdown = _calculateBreakdown(s);
+
+    final jornadaLabel = 'JORNADA ${s['jornada'].replaceAll('J', '')}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Evolución de puntos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-        const SizedBox(height: 12),
+        Center(
+          child: Text(
+            jornadaLabel.toUpperCase(),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+          ),
+        ),
+        const SizedBox(height: 16),
         AppCard(
-          child: SizedBox(
-            height: 120,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: reversedStats.map((s) {
-                final barHeight = maxPts > 0 ? (s['pts'] as int) / maxPts * 80 : 5.0;
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text('${s['pts']}', style: const TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        TweenAnimationBuilder<double>(
-                          tween: Tween(begin: 0, end: barHeight),
-                          duration: const Duration(milliseconds: 600),
-                          builder: (ctx, val, _) => Container(
-                            height: val,
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              gradient: AppColors.primaryGradient,
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                              boxShadow: [
-                                BoxShadow(color: AppColors.primary.withOpacity(0.2), blurRadius: 4),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(s['jornada'], style: const TextStyle(color: AppColors.textMuted, fontSize: 9)),
-                      ],
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              ...breakdown.map((item) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      child: Text(
+                        '${item['cantidad']}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        item['label'],
+                        style: const TextStyle(color: Colors.white60, fontSize: 13),
+                      ),
+                    ),
+                    Text(
+                      item['puntos'] == 0 ? '-' : (item['puntos'] > 0 ? '+${item['puntos']}' : '${item['puntos']}'),
+                      style: TextStyle(
+                        color: item['puntos'] > 0 ? AppColors.success : (item['puntos'] < 0 ? AppColors.error : Colors.white24),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                decoration: const BoxDecoration(
+                  color: AppColors.success,
+                  borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'TOTAL JORNADA ${s['jornada'].replaceAll('J', '')}'.toUpperCase(),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
+                    ),
+                    Text(
+                      '${s['pts']} PTS',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
+  }
+
+  List<Map<String, dynamic>> _calculateBreakdown(Map<String, dynamic> s) {
+    final List<Map<String, dynamic>> items = [];
+    final pos = _jugador?.posicion;
+    if (pos == null) return items;
+
+    // Convocación
+    items.add({
+      'cantidad': s['convocado'] == true ? 1 : 0,
+      'label': 'Convocado',
+      'puntos': s['convocado'] == true ? 1 : 0
+    });
+
+    // Participación
+    items.add({
+      'cantidad': s['titular'] == true ? 1 : 0,
+      'label': 'Titularidad',
+      'puntos': s['titular'] == true ? 2 : 0
+    });
+
+    // Goles
+    int ptsPorGol = 4;
+    if (pos == Posicion.centrocampista) ptsPorGol = 5;
+    if (pos == Posicion.defensa || pos == Posicion.portero) ptsPorGol = 6;
+    
+    final goles = s['goles'] as int;
+    items.add({
+      'cantidad': goles,
+      'label': 'Goles marcados',
+      'puntos': goles * ptsPorGol
+    });
+
+    // Portería a cero
+    int ptsPC = 1;
+    if (pos == Posicion.centrocampista) ptsPC = 2;
+    if (pos == Posicion.defensa || pos == Posicion.portero) ptsPC = 3;
+    
+    items.add({
+      'cantidad': s['porteria_cero'] == true ? 1 : 0,
+      'label': 'Portería a cero',
+      'puntos': s['porteria_cero'] == true ? ptsPC : 0
+    });
+
+    // Goles propia
+    final gp = s['goles_propia'] as int;
+    items.add({
+      'cantidad': gp,
+      'label': 'Goles en propia',
+      'puntos': gp * -2
+    });
+
+    // Tarjetas
+    final am = s['amarillas'] as int;
+    final rj = s['rojas'] as int;
+    
+    if (am >= 2) {
+      items.add({'cantidad': 1, 'label': 'Doble amarilla', 'puntos': -3});
+    } else if (rj > 0) {
+      items.add({'cantidad': 1, 'label': 'Tarjeta roja directa', 'puntos': -4});
+    } else {
+      items.add({
+        'cantidad': am,
+        'label': 'Tarjetas amarillas',
+        'puntos': am * -1
+      });
+      items.add({
+        'cantidad': 0,
+        'label': 'Tarjeta roja directa',
+        'puntos': 0
+      });
+    }
+
+    return items;
   }
 
   void _showActionsMenu() {
@@ -1072,26 +1202,4 @@ class _PlayerDetailScreenState extends ConsumerState<PlayerDetailScreen> {
   }
 }
 
-class _TableHeader extends StatelessWidget {
-  final Widget? icon;
-  final String? text;
-  final int flex;
-  final bool alignRight;
-  final bool alignCenter;
-
-  const _TableHeader({this.icon, this.text, required this.flex, this.alignRight = false, this.alignCenter = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      flex: flex,
-      child: text != null 
-        ? Text(
-            text!,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.bold),
-            textAlign: alignCenter ? TextAlign.center : (alignRight ? TextAlign.right : TextAlign.left),
-          )
-        : Center(child: icon!),
-    );
-  }
-}
+// _TableHeader removed

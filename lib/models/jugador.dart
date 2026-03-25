@@ -111,4 +111,36 @@ class Jugador {
   String get precioFormateado {
     return precio.toCurrency;
   }
+
+  Jugador copyWith({
+    String? id,
+    String? nombre,
+    String? apellidos,
+    String? equipoId,
+    String? equipoNombre,
+    Posicion? posicion,
+    int? dorsal,
+    String? fotoUrl,
+    double? precio,
+    bool? activo,
+    double? puntosPromedio,
+    int? puntosUltimaJornada,
+    int? puntosTotales,
+  }) {
+    return Jugador(
+      id: id ?? this.id,
+      nombre: nombre ?? this.nombre,
+      apellidos: apellidos ?? this.apellidos,
+      equipoId: equipoId ?? this.equipoId,
+      equipoNombre: equipoNombre ?? this.equipoNombre,
+      posicion: posicion ?? this.posicion,
+      dorsal: dorsal ?? this.dorsal,
+      fotoUrl: fotoUrl ?? this.fotoUrl,
+      precio: precio ?? this.precio,
+      activo: activo ?? this.activo,
+      puntosPromedio: puntosPromedio ?? this.puntosPromedio,
+      puntosUltimaJornada: puntosUltimaJornada ?? this.puntosUltimaJornada,
+      puntosTotales: puntosTotales ?? this.puntosTotales,
+    );
+  }
 }
