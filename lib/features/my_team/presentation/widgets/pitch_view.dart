@@ -243,13 +243,15 @@ class _PlayerTile extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            width: 60, // Fixed width to match player circle and prevent row overflow
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.6),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
               player['name'] as String,
+              maxLines: 1,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 8,
